@@ -816,6 +816,13 @@ func addedFileRendersWhole(scope string) bool {
 	return scope != "staged" && scope != "unstaged"
 }
 
+// isWorkingTreeCommitSelection reports whether the commit selection still
+// describes the working tree — no commit filter, or the virtual "Working
+// changes" entry — as opposed to a specific historical commit.
+func isWorkingTreeCommitSelection(commit string) bool {
+	return commit == "" || commit == virtualWorkingTreeCommitSHA
+}
+
 // scopedHunksForCommit returns hunks when a commit (or commit range) pin is set.
 // ok is false when commit is empty and the caller should use scope-based diffs.
 func scopedHunksForCommit(fc vcs.FileChange, commit, repoRoot string, v vcs.VCS, ignoreWhitespace bool) (hunks []vcs.DiffHunk, ok bool) {
@@ -829,7 +836,8 @@ func scopedHunksForCommit(fc vcs.FileChange, commit, repoRoot string, v vcs.VCS,
 		}
 		return nil, true
 	}
-	if base, head, rangeOK := vcs.SplitCommitRange(commit); rangeOK {
+	if from, head, rangeOK := vcs.SplitCommitRange(commit); rangeOK {
+		base := inclusiveRangeBase(v, from, repoRoot)
 		h, err := v.FileDiffBetweenSHAs(fc.Path, fc.OldPath, base, head, repoRoot, ignoreWhitespace)
 		if err == nil {
 			return h, true
@@ -875,12 +883,28 @@ func scopedHunks(fc vcs.FileChange, scope, commit, baseRef, repoRoot string, v v
 	return nil
 }
 
+// inclusiveRangeBase maps the commit picker's "from" pin onto the revision the
+// range should actually diff from. The picker labels its endpoints "from" and
+// "through" and shows a single pinned commit's own changes, so a range starting
+// at that commit must include them too — but `git diff from..through` excludes
+// them, which silently dropped whole files from the review. Diffing from the
+// parent restores that, matching the single-commit view.
+//
+// Falls back to from itself when the backend cannot resolve a parent, which
+// preserves the previous (exclusive) behavior rather than erroring.
+func inclusiveRangeBase(v vcs.VCS, from, repoRoot string) string {
+	if base, ok := v.InclusiveDiffBase(from, repoRoot); ok && base != "" {
+		return base
+	}
+	return from
+}
+
 func changesForScopeSelection(v vcs.VCS, repoRoot, baseRef, scope, commit string) ([]vcs.FileChange, error) {
 	if commit == virtualWorkingTreeCommitSHA {
 		return v.ChangedFilesOnDefaultInDir(repoRoot)
 	}
-	if base, head, ok := vcs.SplitCommitRange(commit); ok {
-		return v.ChangedFilesBetweenSHAs(base, head, repoRoot)
+	if from, head, ok := vcs.SplitCommitRange(commit); ok {
+		return v.ChangedFilesBetweenSHAs(inclusiveRangeBase(v, from, repoRoot), head, repoRoot)
 	}
 	if commit != "" {
 		return v.ChangedFilesForCommit(commit, repoRoot)
@@ -1061,7 +1085,12 @@ func computeScopedDiffHunks(path, scope, commit, status, oldPath, content, baseR
 	if status == "untracked" && (scope == "unstaged" || scope == "all" || scope == "") {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
-	if status == "added" && addedFileRendersWhole(scope) {
+	// Only render an added file from `content` for working-tree views. `content`
+	// is the file as it exists on disk now: empty for a file outside the
+	// session's base list (one a merge brought in), and stale for anything
+	// edited since the selected commit. git's own diff already renders an added
+	// file as all-additions, and does so as of that commit.
+	if status == "added" && isWorkingTreeCommitSelection(commit) && addedFileRendersWhole(scope) {
 		return vcs.FileDiffUnifiedNewFile(content)
 	}
 	return scopedHunks(vcs.FileChange{Path: path, OldPath: oldPath, Status: status}, scope, commit, baseRef, repoRoot, v, ignoreWhitespace)

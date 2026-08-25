@@ -62,10 +62,14 @@ func TestIsCommitish(t *testing.T) {
 }
 
 // TestGetSessionInfoScoped_CommitRange builds a feature branch with three
-// commits over a base and asserts that scoping by a commit RANGE
-// (C1sha..C3sha) returns the union of files changed across those commits,
-// matching ChangedFilesBetweenSHAs, while a single-commit param still returns
-// only that commit's files.
+// commits over a base and asserts that scoping by a commit RANGE (C1..C3)
+// returns the files changed by C1 through C3 *inclusive* of C1, while a
+// single-commit param still returns only that commit's files.
+//
+// This test previously asserted the exclusive form (C1's own files omitted,
+// matching raw `git diff C1..C3`). The picker labels its endpoints "from" and
+// "through" and shows a lone pinned commit's own changes, so excluding them
+// once a second pin was added silently dropped whole files from the review.
 func TestGetSessionInfoScoped_CommitRange(t *testing.T) {
 	dir := initTestRepo(t)
 	base := gitT(t, dir, "rev-parse", "HEAD")
@@ -82,19 +86,17 @@ func TestGetSessionInfoScoped_CommitRange(t *testing.T) {
 		VCS:      &vcs.GitVCS{},
 	}
 
-	// Range C1..C3 should return the union of files touched by C2 and C3
-	// (a.txt was introduced by C1 itself, so it's part of the C1 tree, not the
-	// diff from C1). Assert against ChangedFilesBetweenSHAs as the source of truth.
-	wantChanges, err := vcs.ChangedFilesBetweenSHAs(c1, c3, dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wantPaths := pathsOf(wantChanges)
-
 	rangeInfo := s.GetSessionInfoScoped("", c1+".."+c3)
 	gotPaths := filePaths(rangeInfo.Files)
+	wantPaths := []string{"a.txt", "b.txt", "c.txt"}
 	if !reflect.DeepEqual(gotPaths, wantPaths) {
-		t.Errorf("range C1..C3 files = %v, want %v", gotPaths, wantPaths)
+		t.Errorf("range C1..C3 files = %v, want %v (C1's own a.txt included)", gotPaths, wantPaths)
+	}
+
+	// A range that starts after C1 must still exclude it.
+	laterInfo := s.GetSessionInfoScoped("", c2+".."+c3)
+	if got, want := filePaths(laterInfo.Files), []string{"b.txt", "c.txt"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("range C2..C3 files = %v, want %v", got, want)
 	}
 
 	// A single commit (C2) should return only C2's files.
@@ -127,4 +129,33 @@ func filePaths(files []SessionFileInfo) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// A merge commit produced no files at all: the file list came from
+// `git diff-tree <sha>`, which prints nothing for merges, so selecting one in
+// the picker showed an empty review.
+func TestGetSessionInfoScoped_MergeCommit(t *testing.T) {
+	dir := initTestRepo(t)
+	base := gitT(t, dir, "rev-parse", "HEAD")
+
+	gitT(t, dir, "checkout", "-b", "feature")
+	commitAt(t, dir, "feat.go", "package f\n", "feat work")
+	gitT(t, dir, "checkout", "main")
+	commitAt(t, dir, "side.go", "package s\n", "side work")
+	gitT(t, dir, "checkout", "feature")
+	gitT(t, dir, "merge", "--no-ff", "main", "-m", "merge main")
+	merge := gitT(t, dir, "rev-parse", "HEAD")
+
+	s := &Session{
+		Mode:     "git",
+		RepoRoot: dir,
+		BaseRef:  base,
+		Branch:   "feature",
+		VCS:      &vcs.GitVCS{},
+	}
+
+	info := s.GetSessionInfoScoped("", merge)
+	if got, want := filePaths(info.Files), []string{"side.go"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("merge commit files = %v, want %v", got, want)
+	}
 }

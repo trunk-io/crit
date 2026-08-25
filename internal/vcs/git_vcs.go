@@ -114,6 +114,12 @@ func (g *GitVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileCh
 	return ChangedFilesBetweenSHAs(baseSHA, headSHA, dir)
 }
 
+// InclusiveDiffBase resolves sha's first parent, falling back to the empty tree
+// for a root commit. Always ok for git.
+func (g *GitVCS) InclusiveDiffBase(sha, dir string) (string, bool) {
+	return DiffBaseForCommit(sha, dir), true
+}
+
 // FileDiffBetweenSHAs returns parsed diff hunks for path in the range baseSHA..headSHA.
 func (g *GitVCS) FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir string, ignoreWhitespace bool) ([]DiffHunk, error) {
 	return FileDiffBetweenSHAs(path, oldPath, baseSHA, headSHA, dir, ignoreWhitespace)

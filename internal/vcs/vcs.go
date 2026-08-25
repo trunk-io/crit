@@ -109,7 +109,18 @@ type VCS interface {
 	// ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
 	// Renames are reported with status "renamed" and the new path. Untracked
 	// working-tree files are NOT included — this is a pure git-history range.
+	//
+	// The range is EXCLUSIVE of baseSHA's own changes, matching `git diff a..b`.
+	// Callers wanting baseSHA's changes included (the commit picker's
+	// "from → through") must first map baseSHA through InclusiveDiffBase.
 	ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error)
+
+	// InclusiveDiffBase returns the revision to use as the base of a range that
+	// should include sha's own changes — sha's first parent, or an empty-tree
+	// sentinel when sha is a root commit. ok is false when the backend cannot
+	// resolve it, in which case callers must fall back to sha itself (leaving
+	// the range exclusive) rather than guessing.
+	InclusiveDiffBase(sha, dir string) (base string, ok bool)
 
 	// FileDiffBetweenSHAs returns parsed diff hunks for path in the range
 	// baseSHA..headSHA. Returns nil hunks when there is no diff for that path.

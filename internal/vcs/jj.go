@@ -355,6 +355,21 @@ func (j *JJVCS) FileContentAtRef(path, ref, dir string) (string, error) {
 	return string(data), nil
 }
 
+// InclusiveDiffBase resolves sha's first parent. jj's root commit is a real
+// revision, so a root parent resolves rather than erroring; ok is false only
+// when the revset fails, leaving the caller on the exclusive base.
+func (j *JJVCS) InclusiveDiffBase(sha, dir string) (string, bool) {
+	rev, err := ResolveJJRevisionToCommitID(dir, sha)
+	if err != nil {
+		return "", false
+	}
+	parent, err := jjCommitIDForRevset(dir, fmt.Sprintf("parents(%s)", jjCommitRevset(rev)))
+	if err != nil || parent == "" {
+		return "", false
+	}
+	return parent, true
+}
+
 func (j *JJVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
 	base, err := ResolveJJRevisionToCommitID(dir, baseSHA)
 	if err != nil {

@@ -5232,6 +5232,10 @@ func TestComputeScopedDiffHunks_NilVCS(t *testing.T) {
 func TestComputeScopedDiffHunks_CommitRangeRename(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "old.go", "package x\n", "add old")
+	// The range's "from" pin must not be the commit that created old.go: ranges
+	// are inclusive of their start, so old.go would read as a plain add and the
+	// rename pairing this test covers would never be exercised.
+	commitAt(t, dir, "unrelated.go", "package y\n", "unrelated")
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	gitT(t, dir, "mv", "old.go", "new.go")
 	gitT(t, dir, "commit", "-m", "rename")
@@ -5252,6 +5256,10 @@ func TestComputeScopedDiffHunks_CommitRangeRename(t *testing.T) {
 func TestGetFileDiffSnapshotScoped_CommitRangeRename(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "old.go", "package x\n", "add old")
+	// The range's "from" pin must not be the commit that created old.go: ranges
+	// are inclusive of their start, so old.go would read as a plain add and the
+	// rename pairing this test covers would never be exercised.
+	commitAt(t, dir, "unrelated.go", "package y\n", "unrelated")
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	gitT(t, dir, "mv", "old.go", "new.go")
 	gitT(t, dir, "commit", "-m", "rename")
@@ -5320,6 +5328,10 @@ func TestGetFileDiffSnapshotScoped_RangeFocus_IgnoresBranchScope(t *testing.T) {
 func TestGetFileDiffSnapshotScoped_CommitRangeRename_PreloadedFile(t *testing.T) {
 	dir := initTestRepo(t)
 	commitAt(t, dir, "old.go", "package x\n", "add old")
+	// The range's "from" pin must not be the commit that created old.go: ranges
+	// are inclusive of their start, so old.go would read as a plain add and the
+	// rename pairing this test covers would never be exercised.
+	commitAt(t, dir, "unrelated.go", "package y\n", "unrelated")
 	base := gitT(t, dir, "rev-parse", "HEAD")
 	gitT(t, dir, "mv", "old.go", "new.go")
 	gitT(t, dir, "commit", "-m", "rename")

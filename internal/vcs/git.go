@@ -445,16 +445,47 @@ func SplitCommitRange(commit string) (base, head string, ok bool) {
 	return base, head, true
 }
 
-// ChangedFilesForCommit returns the files changed in a single commit.
-// The dir parameter sets the working directory for the git command.
-func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
-	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "-r", "--name-status", sha)
+// EmptyTreeSHA is git's well-known empty tree object. Diffing against it yields
+// a commit's full contents as additions, which is what a root commit (having no
+// parent to diff against) needs.
+const EmptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// DiffBaseForCommit returns the revision sha must be diffed against for sha's
+// own changes to appear: its first parent, or the empty tree when sha is a root
+// commit. Using the first parent (rather than all parents) is what makes merge
+// commits show the branch they merged in.
+func DiffBaseForCommit(sha, dir string) string {
+	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", sha+"^")
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("git diff-tree failed: %w", err)
+		return EmptyTreeSHA
+	}
+	parent := strings.TrimSpace(string(out))
+	if parent == "" {
+		return EmptyTreeSHA
+	}
+	return parent
+}
+
+// ChangedFilesForCommit returns the files changed in a single commit.
+// The dir parameter sets the working directory for the git command.
+//
+// Diffs first-parent..sha rather than `git diff-tree <sha>`: diff-tree prints
+// nothing at all for a merge commit, which surfaced as an empty file list — the
+// reviewer was told a merge changed nothing. This also matches FileDiffForCommit,
+// so the file list and the hunks it renders agree on merges and root commits.
+func ChangedFilesForCommit(sha, dir string) ([]FileChange, error) {
+	base := DiffBaseForCommit(sha, dir)
+	cmd := exec.Command("git", "diff", "--name-status", "-M", base+".."+sha)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git diff %s..%s --name-status: %w", base, sha, err)
 	}
 	return parseNameStatus(string(out)), nil
 }
@@ -477,8 +508,7 @@ func FileDiffForCommit(path, sha, dir string, ignoreWhitespace bool) ([]DiffHunk
 			// git diff exits 1 when there are differences — not an error
 		case errors.As(err, &exitErr) && exitErr.ExitCode() == 128:
 			// sha^ failed (root commit) — diff against the empty tree
-			emptyTree := "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
-			cmd2 := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), emptyTree+".."+sha, "--", path)...)
+			cmd2 := exec.Command("git", append(diffBaseArgs(ignoreWhitespace), EmptyTreeSHA+".."+sha, "--", path)...)
 			cmd2.Env = stripExternalDiffEnv()
 			if dir != "" {
 				cmd2.Dir = dir

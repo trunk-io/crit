@@ -353,6 +353,21 @@ func (s *SaplingVCS) FileStatusInRepo(path, baseRef, dir string) string {
 	return changes[0].Status
 }
 
+// InclusiveDiffBase resolves sha's first parent via the p1() revset. A root
+// commit has no p1, so sl errors and ok is false — the caller keeps the
+// exclusive base rather than silently diffing against the wrong revision.
+func (s *SaplingVCS) InclusiveDiffBase(sha, dir string) (string, bool) {
+	out, err := SLCommandInDir(dir, "log", "-r", fmt.Sprintf("p1(%s)", strings.TrimSpace(sha)), "-T", "{node}")
+	if err != nil {
+		return "", false
+	}
+	parent := strings.TrimSpace(out)
+	if parent == "" {
+		return "", false
+	}
+	return parent, true
+}
+
 // ChangedFilesBetweenSHAs returns the files changed in the range baseSHA..headSHA.
 func (s *SaplingVCS) ChangedFilesBetweenSHAs(baseSHA, headSHA, dir string) ([]FileChange, error) {
 	out, err := SLCommandInDir(dir, "status", "--rev", baseSHA, "--rev", headSHA)

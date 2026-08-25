@@ -37,6 +37,7 @@ func (f *fakeFetchVCS) ChangedFilesFromBaseInDir(string, string) ([]FileChange, 
 func (f *fakeFetchVCS) ChangedFilesScoped(string, string) ([]FileChange, error) {
 	return nil, nil
 }
+func (f *fakeFetchVCS) InclusiveDiffBase(string, string) (string, bool) { return "", false }
 func (f *fakeFetchVCS) ChangedFilesForCommit(string, string) ([]FileChange, error) {
 	return nil, nil
 }
