@@ -37,10 +37,57 @@ body {
   z-index: 100;
   background: var(--crit-bg-card);
   border-bottom: 1px solid var(--crit-border);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The original header row. Kept as an inner element so .header can stack the
+   review toolbar under it — everything below the header offsets off
+   --header-height, which is measured from .header, so a sibling row would have
+   needed every one of those call sites updated. */
+.header-bar {
   padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+/* ===== Review Toolbar ===== */
+.review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 24px;
+  border-top: 1px solid var(--crit-border);
+}
+
+.review-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.review-toolbar-btn svg { width: 16px; height: 16px; }
+
+.review-toolbar-btn:hover {
+  color: var(--crit-editor-fg);
+  background: var(--crit-brand-subtle);
+  border-color: var(--crit-border);
+}
+
+.review-toolbar-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--crit-focus);
 }
 
 .header-left {
@@ -2796,6 +2843,141 @@ textarea.drag-active {
 }
 .confirm-send-anyway:hover { color: var(--crit-editor-fg-secondary); }
 
+/* ===== Comment Cleanup Dialog ===== */
+.cleanup-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--crit-overlay-bg);
+  z-index: 380;
+  align-items: center;
+  justify-content: center;
+}
+.cleanup-overlay.active { display: flex; }
+
+.cleanup-dialog {
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 12px;
+  padding: 20px 24px 18px;
+  width: min(620px, 92vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: var(--crit-shadow);
+}
+
+.cleanup-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cleanup-dialog-head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--crit-editor-fg);
+}
+.cleanup-close {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--crit-editor-fg-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.cleanup-close:hover { color: var(--crit-editor-fg); }
+
+.cleanup-intro {
+  margin: 8px 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--crit-editor-fg-secondary);
+}
+
+.cleanup-slider-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.cleanup-slider-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-editor-fg-muted);
+}
+.cleanup-level-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--crit-brand);
+}
+
+.cleanup-slider {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--crit-brand);
+  cursor: pointer;
+}
+.cleanup-slider:focus-visible {
+  outline: none;
+  box-shadow: var(--crit-focus);
+  border-radius: 6px;
+}
+.cleanup-slider:disabled { cursor: default; opacity: 0.6; }
+
+.cleanup-slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--crit-editor-fg-muted);
+}
+
+.cleanup-level-summary {
+  margin: 10px 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--crit-editor-fg-secondary);
+}
+
+.cleanup-prompt-head {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--crit-editor-fg-muted);
+  margin-bottom: 6px;
+}
+.cleanup-prompt-preview {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--crit-editor-bg);
+  border: 1px solid var(--crit-border);
+  border-radius: 8px;
+  font-family: var(--crit-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--crit-editor-fg-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cleanup-prompt-preview:focus-visible {
+  outline: none;
+  border-color: var(--crit-brand);
+}
+
+.cleanup-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* ===== Settings Panel Overlay ===== */
 .settings-overlay {
   display: none;
@@ -3518,7 +3700,8 @@ body.hide-resolved .comment-block:not(.panel-comment-block):has(.resolved-card) 
 @media (max-width: 600px) {
   .toc, #tocToggle { display: none !important; }
   .comments-panel, .pr-panel { display: none !important; }
-  .header { padding: 10px 14px; }
+  .header-bar { padding: 10px 14px; }
+  .review-toolbar { padding: 4px 14px; }
   .header-context { display: none; }
   .base-branch-picker { display: none; }
   .file-tree-panel { display: none; }
@@ -6080,6 +6263,10 @@ body.sidebar-resizing * {
     padding: 12px;
     min-width: 44px;
     min-height: 44px;
+  }
+  .review-toolbar-btn {
+    width: 44px;
+    height: 44px;
   }
   .update-btn {
     min-width: 44px;

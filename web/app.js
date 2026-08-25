@@ -865,6 +865,19 @@
     updateHeaderHeight();
     window.addEventListener('resize', updateHeaderHeight);
 
+    if (window.crit && window.crit.commentCleanup) {
+      window.crit.commentCleanup.init({
+        addReviewComment: addReviewComment,
+        // Mirrors the finishBtn guard: the waiting overlay covers the header, but
+        // a queued keystroke could still land here after the round flips.
+        finishReview: function () {
+          if (uiState !== 'reviewing') return Promise.resolve();
+          return doFinishReview();
+        },
+        showToast: showMiniToast,
+      });
+    }
+
     document.getElementById('filesContainer').innerHTML =
       '<div class="loading" style="padding: 40px; text-align: center; color: var(--crit-editor-fg-muted);">Loading...</div>';
 

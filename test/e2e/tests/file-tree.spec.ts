@@ -79,8 +79,14 @@ test.describe('File Tree — Git Mode', () => {
     await expect(async () => {
       const box = await header.boundingBox();
       expect(box).toBeTruthy();
-      // Should be positioned just below the sticky header (~49px + 8px padding)
-      expect(box!.y).toBeLessThan(100);
+      // Measured against the live sticky-header height rather than a constant:
+      // .header stacks a review-toolbar row under .header-bar, so its height is
+      // not the bare 49px this assertion was originally written against.
+      const chrome = await page.evaluate(
+        () => document.querySelector('.header')!.getBoundingClientRect().height
+      );
+      expect(box!.y).toBeGreaterThan(0);
+      expect(box!.y).toBeLessThan(chrome + 16);
     }).toPass();
   });
 

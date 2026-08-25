@@ -24,6 +24,15 @@ test.describe('Mobile touch targets (F2)', () => {
     expect(box!.height).toBeGreaterThanOrEqual(44);
   });
 
+  test('review-toolbar icon buttons meet 44x44 target', async ({ page }) => {
+    const btn = page.locator('.review-toolbar-btn').first();
+    await expect(btn).toBeVisible();
+    const box = await btn.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+
   test('comment-count badge button meets 44x44 target', async ({ page }) => {
     const btn = page.locator('.comment-count-btn').first();
     await expect(btn).toBeVisible();
