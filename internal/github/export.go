@@ -19,6 +19,14 @@ func BucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool)
 	return bucketCommentsForPush(cj, currentHeadSHA, inRangeMode)
 }
 
+func ComposeReviewBody(message string, reserved []scopedComment) string {
+	return composeReviewBody(message, reserved)
+}
+
+func MarkReviewBodyPushed(critPath string, pushed []scopedComment) error {
+	return markReviewBodyPushed(critPath, pushed)
+}
+
 func RequireGH() error {
 	return requireGH()
 }

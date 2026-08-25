@@ -22,6 +22,9 @@
    *   showHeader       — show the header element (default true)
    *   showTemplates    — show template bar (default true)
    *   extraButtons     — array of { className, innerHTML, title, onClick }
+   *   onReserve(body)  — when set, renders a secondary submit that files the
+   *                      comment for GitHub instead of the agent
+   *   reserveLabel     — label for that button (default 'Reserve for GitHub')
    */
   function createForm(opts) {
     opts = opts || {};
@@ -90,6 +93,19 @@
     submitBtn.addEventListener('click', doSubmit);
 
     actions.appendChild(cancelBtn);
+
+    // Secondary submit: same body, different destination. Sits before the
+    // primary so the agent path stays the rightmost default action.
+    if (typeof opts.onReserve === 'function') {
+      var reserveBtn = document.createElement('button');
+      reserveBtn.type = 'button';
+      reserveBtn.className = 'btn btn-sm btn-reserve';
+      reserveBtn.textContent = opts.reserveLabel || 'Reserve for GitHub';
+      reserveBtn.title = 'Save for the pull request — the agent will not see this comment';
+      reserveBtn.addEventListener('click', doReserve);
+      actions.appendChild(reserveBtn);
+    }
+
     actions.appendChild(submitBtn);
 
     // Extra buttons (e.g. "Send now" for agent)
@@ -135,6 +151,12 @@
       var body = textarea.value.trim();
       if (!body) { textarea.focus(); return; }
       if (typeof opts.onSubmit === 'function') opts.onSubmit(body);
+    }
+
+    function doReserve() {
+      var body = textarea.value.trim();
+      if (!body) { textarea.focus(); return; }
+      if (typeof opts.onReserve === 'function') opts.onReserve(body);
     }
 
     function doCancel() {

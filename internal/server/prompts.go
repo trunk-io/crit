@@ -86,7 +86,7 @@ func filesWithUnresolvedComments(sess *Session) []string {
 	var out []string
 	for _, f := range sess.Files {
 		for _, c := range f.Comments {
-			if !c.Resolved {
+			if !c.Resolved && c.AgentVisible() {
 				if _, ok := seen[f.Path]; !ok {
 					seen[f.Path] = struct{}{}
 					out = append(out, f.Path)

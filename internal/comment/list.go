@@ -20,6 +20,13 @@ func isUnresolved(c Comment) bool {
 	return !c.Resolved
 }
 
+// agentFacing filters out comments the reviewer reserved for the pull request.
+// `crit comments` is how the agent reads its feedback, so reserved comments must
+// not appear there — they ship via `crit push` instead.
+func agentFacing(c Comment) bool {
+	return c.AgentVisible()
+}
+
 func commentScope(c Comment) string {
 	if c.Scope == "review" {
 		return "review"
@@ -37,6 +44,9 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 		if unresolvedOnly && !isUnresolved(c) {
 			continue
 		}
+		if !agentFacing(c) {
+			continue
+		}
 		out = append(out, toListedComment("review", "", c))
 	}
 
@@ -50,6 +60,9 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 		var fileLevel, lineLevel []Comment
 		for _, c := range cj.Files[path].Comments {
 			if unresolvedOnly && !isUnresolved(c) {
+				continue
+			}
+			if !agentFacing(c) {
 				continue
 			}
 			if commentScope(c) == "file" {

@@ -43,6 +43,10 @@ type pushBuckets struct {
 	FullStack   []scopedComment
 	Unmapped    []scopedComment
 	ReviewLevel []scopedComment // review-level (general) comments — not pushable to PR review API
+	// ReviewBody holds review-level comments the reviewer reserved for GitHub.
+	// The inline-comment API can't carry them, but the review *body* can, so
+	// they're merged into the submitted review's message instead of dropped.
+	ReviewBody []scopedComment
 }
 
 // bucketCommentsForPush partitions cj's unresolved file comments by their
@@ -109,6 +113,19 @@ func bucketCommentsForPush(cj CritJSON, currentHeadSHA string, inRangeMode bool)
 
 	for _, rc := range cj.ReviewComments {
 		if rc.Resolved {
+			continue
+		}
+		if rc.ReservedForGitHub {
+			// Already shipped in a previous review body and unedited since:
+			// re-posting would duplicate it on the PR. An edited body hashes
+			// differently and rides along in the next review.
+			if rc.LastPushedBodyHash == bodyHashAtPush(rc.Body) {
+				continue
+			}
+			buckets.ReviewBody = append(buckets.ReviewBody, scopedComment{
+				Comment: rc,
+				Detail:  "reserved for GitHub (review body)",
+			})
 			continue
 		}
 		buckets.ReviewLevel = append(buckets.ReviewLevel, scopedComment{
@@ -227,6 +244,9 @@ func writeOrphanExport(prNum int, b pushBuckets, exportDir string) (string, erro
 func summarizeBuckets(prNum int, b pushBuckets) string {
 	base := fmt.Sprintf("Push plan for PR #%d: %d postable, %d full-stack, %d stale",
 		prNum, len(b.Postable), len(b.FullStack), len(b.Unmapped))
+	if len(b.ReviewBody) > 0 {
+		base = fmt.Sprintf("%s, %d in review body", base, len(b.ReviewBody))
+	}
 	if len(b.ReviewLevel) > 0 {
 		return fmt.Sprintf("%s, %d review-level.", base, len(b.ReviewLevel))
 	}
@@ -259,6 +279,13 @@ func detailedDryRun(b pushBuckets) string {
 		}
 		sb.WriteString("\n")
 	}
+	if len(b.ReviewBody) > 0 {
+		fmt.Fprintf(&sb, "Review body — reserved for GitHub (%d):\n", len(b.ReviewBody))
+		for _, sc := range b.ReviewBody {
+			writeDryRunLine(&sb, sc)
+		}
+		sb.WriteString("\n")
+	}
 	if len(b.ReviewLevel) > 0 {
 		fmt.Fprintf(&sb, "Review-level (not pushable) (%d):\n", len(b.ReviewLevel))
 		for _, sc := range b.ReviewLevel {
@@ -267,6 +294,27 @@ func detailedDryRun(b pushBuckets) string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// composeReviewBody merges the --message flag with any review-level comments
+// reserved for GitHub, producing the body of the submitted PR review.
+//
+// Order is message-first so an explicit --message stays the lead paragraph;
+// reserved comments follow in authoring order, separated by blank lines. A
+// single reserved comment and no message yields exactly that comment's body,
+// so the common case produces no scaffolding. Bodies are trimmed of trailing
+// whitespace to keep the joins predictable.
+func composeReviewBody(message string, reserved []scopedComment) string {
+	parts := make([]string, 0, len(reserved)+1)
+	if trimmed := strings.TrimSpace(message); trimmed != "" {
+		parts = append(parts, trimmed)
+	}
+	for _, sc := range reserved {
+		if body := strings.TrimSpace(sc.Comment.Body); body != "" {
+			parts = append(parts, body)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // writeDryRunLine appends one comment line to the dry-run output. Body is

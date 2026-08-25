@@ -247,6 +247,13 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 	postable := len(b.Postable)
 	posted, postFailed, postAuthFailed, commentIDs := runPushPostReview(ctx, b, rewrite)
 
+	// Reserved review-level comments ship inside the review body, so they only
+	// count as pushed when the review itself went up.
+	reviewBodyPosted := 0
+	if !postFailed {
+		reviewBodyPosted = len(b.ReviewBody)
+	}
+
 	totalReplies := countNewReplies(ctx.cj)
 	postedReplies := 0
 	replyAuthFailed := false
@@ -289,9 +296,9 @@ func RunPushLive(ctx pushContext, b PushBuckets) int { //nolint:gocyclo // CLI p
 		return 1
 	}
 
-	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), exportPath)
+	printPushSummary(posted, patched, deleted, len(b.FullStack)+len(b.Unmapped), reviewBodyPosted, exportPath)
 
-	if pushShouldExitFailure(posted, patched, deleted, exportPath, postFailed, deleteFailed) {
+	if pushShouldExitFailure(posted, patched, deleted, reviewBodyPosted, exportPath, postFailed, deleteFailed) {
 		return 1
 	}
 	return 0
@@ -324,14 +331,20 @@ func writePushOrphanExport(ctx pushContext, b PushBuckets) string {
 // the failure was specifically an auth-rotation 401, and the path-to-id
 // mapping for body-hash bookkeeping.
 func runPushPostReview(ctx pushContext, b PushBuckets, rewrite BodyRewriter) (int, bool, bool, map[string]int64) {
-	if len(b.Postable) == 0 {
+	body := ComposeReviewBody(ctx.flags.message, b.ReviewBody)
+	// Reserved review-level comments ride in the review body, so a review with
+	// no inline comments is still worth submitting when one is present.
+	if len(b.Postable) == 0 && len(b.ReviewBody) == 0 {
 		return 0, false, false, nil
 	}
 	ghComments := BucketsToGHComments(b.Postable, rewrite)
-	ids, err := createGHReview(ctx.id, ghComments, ctx.flags.message, ctx.event)
+	ids, err := createGHReview(ctx.id, ghComments, body, ctx.event)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error posting review: %v\n", err)
 		return 0, true, errors.Is(err, ErrGHAuthFailed), nil
+	}
+	if err := MarkReviewBodyPushed(ctx.critPath, b.ReviewBody); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to record pushed review body: %v\n", err)
 	}
 	return len(ghComments), false, false, ids
 }
@@ -353,20 +366,23 @@ func countNewReplies(cj session.CritJSON) int {
 // least one operation failed. Failed per-ID deletes stay in
 // the GitHub entries in the neutral remote-delete queue for the next push,
 // partial delete failure must not mask successful posts/patches/drains.
-func pushShouldExitFailure(posted, patched, deleted int, exportPath string, postFailed, deleteFailed bool) bool {
-	anySuccess := posted > 0 || patched > 0 || deleted > 0 || exportPath != ""
+func pushShouldExitFailure(posted, patched, deleted, reviewBody int, exportPath string, postFailed, deleteFailed bool) bool {
+	anySuccess := posted > 0 || patched > 0 || deleted > 0 || reviewBody > 0 || exportPath != ""
 	anyFailure := postFailed || deleteFailed
 	return anyFailure && !anySuccess
 }
 
 // printPushSummary writes the one-line stdout summary describing what
 // happened. Adapts wording to the actual outcome (no orphans, no posts, etc).
-func printPushSummary(posted, patched, deleted, orphans int, exportPath string) {
-	if posted == 0 && patched == 0 && deleted == 0 && orphans == 0 {
+func printPushSummary(posted, patched, deleted, orphans, reviewBody int, exportPath string) {
+	if posted == 0 && patched == 0 && deleted == 0 && orphans == 0 && reviewBody == 0 {
 		fmt.Println("No comments to push.")
 		return
 	}
 	parts := []string{fmt.Sprintf("Posted %d comments", posted)}
+	if reviewBody > 0 {
+		parts = append(parts, fmt.Sprintf("%d in the review body", reviewBody))
+	}
 	if patched > 0 {
 		parts = append(parts, fmt.Sprintf("edited %d", patched))
 	}

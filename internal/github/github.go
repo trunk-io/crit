@@ -1089,6 +1089,39 @@ func patchGHComment(ghID int64, body string) error {
 	return nil
 }
 
+// markReviewBodyPushed stamps LastPushedBodyHash on the review-level comments
+// that shipped inside a submitted review's body. Without the stamp a second
+// `crit push` would append the same text to a second review — the body has no
+// GitHub comment ID of its own to dedup against, so the hash is the marker.
+func markReviewBodyPushed(critPath string, pushed []scopedComment) error {
+	if len(pushed) == 0 {
+		return nil
+	}
+	pushedIDs := make(map[string]struct{}, len(pushed))
+	for _, sc := range pushed {
+		pushedIDs[sc.Comment.ID] = struct{}{}
+	}
+
+	data, err := os.ReadFile(critPath)
+	if err != nil {
+		return err
+	}
+	var cj session.CritJSON
+	if err := json.Unmarshal(data, &cj); err != nil {
+		return err
+	}
+	for i, rc := range cj.ReviewComments {
+		if _, ok := pushedIDs[rc.ID]; ok {
+			cj.ReviewComments[i].LastPushedBodyHash = bodyHashAtPush(rc.Body)
+		}
+	}
+	out, err := json.MarshalIndent(cj, "", "  ")
+	if err != nil {
+		return err
+	}
+	return config.AtomicWriteFile(critPath, append(out, '\n'), 0644)
+}
+
 // updateCritJSONWithEditedBodies stamps LastPushedBodyHash on records that
 // were successfully PATCHed in this push. edited is the slice that was queued
 // for PATCH; succeeded is the subset whose PATCH returned cleanly.

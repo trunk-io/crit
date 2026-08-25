@@ -38,7 +38,7 @@ crit/
 10. **Localhost by default** — server binds to `127.0.0.1` (no CORS headers needed). Non-loopback `--host` / `CRIT_HOST` / global `host`, or any `public_url`, require `--allow-unauthenticated-network` / `CRIT_ALLOW_UNAUTHENTICATED_NETWORK=1` (Crit has no network auth).
 11. **Two-level config** — `~/.crit.config.json` (global) merged with `.crit.config.json` (project), CLI flags override both. `agent_cmd`, `auth_token`, `share_url`, and `plan_approve_mode` are global-only (prevents malicious repos from hijacking agent commands, redirecting share requests, or weakening Claude Code permissions)
 12. **Headless CLI comment** — `crit comment` writes directly to the review file without starting the server; SSE notifies any running server
-13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
+13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array. A comment may also be `reserved_for_github`, which hides it from the agent while leaving it pushable (see the `crit push` section).
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
 16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
@@ -142,6 +142,9 @@ Requires `gh` CLI installed and authenticated.
 - `crit push --dry-run` shows what would be posted without creating the review
 - `crit push --event approve` submits an approval; `--event request-changes` requests changes (default: `comment`)
 - `crit push -m 'message'` adds a review-level body message
+- **Reserved-for-GitHub comments** (`reserved_for_github: true`) are reviewer feedback aimed at the PR, not the agent. They are withheld from every agent-facing surface — the finish prompt, `crit comments`, and `Session.UnresolvedCommentCount` (which decides Approve vs Finish Review) — but push exactly like any other unresolved comment. Reserving changes *who sees a comment locally*, not what push posts.
+- Reserved **review-level** comments have no inline representation on GitHub, so they merge into the submitted review's *body* (`composeReviewBody`, joined after any `-m` message). They carry no GitHub comment ID, so `LastPushedBodyHash` is what stops a re-push from duplicating them — `markReviewBodyPushed` stamps it after a successful post.
+- When adding a new agent-facing surface, filter it with `Comment.AgentVisible()`. Forgetting to means PR-bound feedback lands in the agent's work queue.
 - PR number auto-detected from current branch, or pass explicitly: `crit pull 42`
 - Any code path that imports comments from an external source (GitHub PR, crit-web) into the local review file MUST dedup against local state first: `buildLocalIDSet` + `buildLocalFingerprintIndex` + `dropDuplicateWebComment`. This applies to direct HTTP paths AND browser relay paths. Calling `mergeWebComments` without pre-filtering causes duplicate comments on repeated pull.
 </important>

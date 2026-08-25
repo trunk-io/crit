@@ -144,6 +144,19 @@
       headerLeft.appendChild(forgeBadge);
     }
 
+    // Reserved comments read as ordinary comments otherwise, and the difference
+    // matters: the agent will never act on them. Suppressed once the comment
+    // actually reached GitHub, where the forge badge above says the same thing.
+    if (comment.reserved_for_github && !comment.github_id) {
+      wrapper.classList.add('reserved-comment');
+      var reservedBadge = document.createElement('span');
+      reservedBadge.className = 'reserved-badge';
+      reservedBadge.textContent = 'For GitHub';
+      reservedBadge.title = 'Reserved for the pull request — not sent to the agent. Posted by crit push.';
+      reservedBadge.setAttribute('aria-label', reservedBadge.title);
+      headerLeft.appendChild(reservedBadge);
+    }
+
     // suppressDrift: live mode passes this so legacy comments carrying
     // `drifted: true` from before the field was retired don't paint a badge.
     if (comment.drifted && !opts.suppressDrift) {

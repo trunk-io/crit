@@ -480,6 +480,7 @@
   const ICON_COMMENT = window.crit.icons.ICON_COMMENT;
   const ICON_COPY_PATH = window.crit.icons.ICON_COPY_PATH;
   const ICON_COPY_PATH_CHECK = window.crit.icons.ICON_COPY_PATH_CHECK;
+  const GITHUB_MARK_SVG = window.crit.icons.ICON_GITHUB_MARK;
 
   function formKey(form) {
     if (form.scope === 'review') return 'review:' + (form.editingId || 'new');
@@ -5717,6 +5718,32 @@
     actions.appendChild(cancelBtn);
     actions.appendChild(submitBtn);
 
+    // Reserve for GitHub: files the comment against the PR instead of the agent.
+    // Git mode only — there's no PR to push to in a plain file review. Hidden
+    // while editing, matching "Send now": both are creation-time destinations.
+    if (session && session.mode === 'git' && !opts.editingId && !formObj.editingId) {
+      const reserveBtn = document.createElement('button');
+      reserveBtn.className = 'btn btn-sm btn-reserve';
+      reserveBtn.innerHTML = GITHUB_MARK_SVG + ' Reserve for GitHub';
+      reserveBtn.title = 'Save for the pull request — the agent will not see this comment. Sent by crit push.';
+      reserveBtn.addEventListener('click', async function() {
+        reserveBtn.disabled = true;
+        submitBtn.disabled = true;
+        const isReview = formObj.scope === 'review';
+        const comment = isReview
+          ? await addReviewComment(textarea.value, { reserved: true })
+          : await submitComment(textarea.value, formObj, { reserved: true });
+        if (!comment) {
+          reserveBtn.disabled = false;
+          submitBtn.disabled = false;
+          return;
+        }
+        updateReservedCount();
+        showMiniToast('Reserved for GitHub');
+      });
+      actions.appendChild(reserveBtn);
+    }
+
     // Callers put editingId on formObj, not opts.
     if (agentEnabled && !opts.editingId && !formObj.editingId) {
       const sendBtn = document.createElement('button');
@@ -5836,7 +5863,7 @@
     textarea.focus();
   }
 
-  async function submitComment(body, formObj) {
+  async function submitComment(body, formObj, opts) {
     if (!body.trim() || !formObj) return null;
     rememberKeyboardFocusFromForm(formObj);
     clearDraft(formObj);
@@ -5861,6 +5888,7 @@
         const payload = {
           body: body.trim()
         };
+        if (opts && opts.reserved) payload.reserved_for_github = true;
         if (formObj.scope === 'file') {
           payload.scope = 'file';
         } else {
@@ -6528,15 +6556,17 @@
 
   // ===== Review-Level (General) Comments =====
   let reviewCommentSubmitting = false;
-  async function addReviewComment(body) {
+  async function addReviewComment(body, opts) {
     if (!body.trim() || reviewCommentSubmitting) return null;
     reviewCommentSubmitting = true;
     let newComment;
     try {
+      const payload = { body: body.trim(), author: configAuthor };
+      if (opts && opts.reserved) payload.reserved_for_github = true;
       const res = await fetch('/api/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: body.trim(), author: configAuthor })
+        body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error('Server returned ' + res.status);
       newComment = await res.json();
@@ -7243,22 +7273,53 @@
 
   // ===== Comment Count =====
   function updateCommentCount() {
-    let unresolved = 0, resolved = 0;
+    let unresolved = 0, resolved = 0, agentUnresolved = 0;
     for (const f of files) {
       for (const c of f.comments) {
-        if (c.resolved) resolved++; else unresolved++;
+        if (c.resolved) { resolved++; continue; }
+        unresolved++;
+        if (!c.reserved_for_github) agentUnresolved++;
       }
     }
     for (const c of reviewComments) {
-      if (c.resolved) resolved++; else unresolved++;
+      if (c.resolved) { resolved++; continue; }
+      unresolved++;
+      if (!c.reserved_for_github) agentUnresolved++;
     }
     const total = unresolved + resolved;
     window.crit.shared.updateCommentCountIndicator({ totalCount: total, openCount: unresolved });
     renderCommentsPanel();
+    updateReservedCount();
     if (uiState === 'reviewing') {
-      const openTotal = unresolved + hiddenUnresolved;
+      // Reserved comments are PR feedback the agent never receives, so they
+      // must not hold the button on "Finish Review" — this mirrors the server's
+      // UnresolvedCommentCount, which decides `approved` on /api/finish.
+      const openTotal = agentUnresolved + hiddenUnresolved;
       document.getElementById('finishBtn').textContent = openTotal === 0 ? 'Approve' : 'Finish Review';
     }
+  }
+
+  // Toolbar chip: how many unresolved comments are waiting for `crit push`.
+  // Hidden at zero so the toolbar stays quiet in reviews that never use it.
+  function updateReservedCount() {
+    const chip = document.getElementById('reservedCount');
+    if (!chip) return;
+    let n = 0;
+    for (const f of files) {
+      for (const c of f.comments) {
+        if (!c.resolved && c.reserved_for_github) n++;
+      }
+    }
+    for (const c of reviewComments) {
+      if (!c.resolved && c.reserved_for_github) n++;
+    }
+    chip.style.display = n === 0 ? 'none' : '';
+    const num = document.getElementById('reservedCountNum');
+    if (num) num.textContent = String(n);
+    chip.title = n === 1
+      ? '1 comment reserved for GitHub — run `crit push` to post it'
+      : n + ' comments reserved for GitHub — run `crit push` to post them';
+    chip.setAttribute('aria-label', chip.title);
   }
 
   function updateTocPosition() {

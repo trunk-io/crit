@@ -189,15 +189,15 @@ esac
 
 	// Exit-code policy: a partial delete failure with at least one drain
 	// (or any post / patch / export) must NOT exit 1.
-	if pushShouldExitFailure(0, 0, drained, "", false, failed) {
+	if pushShouldExitFailure(0, 0, drained, 0, "", false, failed) {
 		t.Error("pushShouldExitFailure = true; want false when a drain succeeded")
 	}
 	// Successful posts must also rescue an all-failed delete batch.
-	if pushShouldExitFailure(3, 0, 0, "", false, true) {
+	if pushShouldExitFailure(3, 0, 0, 0, "", false, true) {
 		t.Error("pushShouldExitFailure = true; want false when posts succeeded")
 	}
 	// True total failure: nothing succeeded, something failed → exit 1.
-	if !pushShouldExitFailure(0, 0, 0, "", false, true) {
+	if !pushShouldExitFailure(0, 0, 0, 0, "", false, true) {
 		t.Error("pushShouldExitFailure = false; want true when nothing succeeded and a delete failed")
 	}
 }

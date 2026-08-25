@@ -90,6 +90,40 @@ body {
   box-shadow: var(--crit-focus);
 }
 
+.review-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--crit-border);
+}
+
+.review-toolbar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  background: var(--crit-pill-bg);
+  border: 1px dashed var(--crit-pill-border);
+  border-radius: 12px;
+  color: var(--crit-pill-fg);
+  font-family: var(--crit-font-body);
+  font-size: 11px;
+  cursor: default;
+}
+
+.review-toolbar-chip-num { font-weight: 600; }
+
+.review-toolbar-chip-label {
+  color: var(--crit-editor-fg-muted);
+  letter-spacing: 0.01em;
+}
+
+.review-toolbar-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--crit-focus);
+}
+
 .header-left {
   display: flex;
   align-items: center;
@@ -2228,6 +2262,7 @@ textarea.drag-active {
 
 .comment-form-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 8px 14px;
@@ -5473,6 +5508,44 @@ body.sidebar-resizing * {
 .btn-agent:disabled {
   opacity: 0.5;
   cursor: wait;
+}
+
+/* Reserve for GitHub — a second submit, so it reads as an action but stays
+   visually subordinate to the primary (agent) submit next to it. */
+.btn-reserve {
+  white-space: nowrap;
+  background: transparent;
+  color: var(--crit-editor-fg-secondary);
+  border: 1px solid var(--crit-border-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.btn-reserve:hover {
+  color: var(--crit-editor-fg);
+  border-color: var(--crit-editor-fg-muted);
+  background: var(--crit-pill-bg-hover);
+}
+.btn-reserve:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* Reserved-for-GitHub comment: held back from the agent, pending `crit push`. */
+.reserved-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--crit-pill-bg);
+  color: var(--crit-pill-fg);
+  border: 1px dashed var(--crit-pill-border);
+}
+.reserved-comment > .comment-card,
+.comment-card.reserved-comment {
+  border-style: dashed;
 }
 
 /* Live Thread — green ambient glow */

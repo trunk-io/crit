@@ -1828,14 +1828,15 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB
 		var req struct {
-			StartLine int        `json:"start_line"`
-			EndLine   int        `json:"end_line"`
-			Side      string     `json:"side"`
-			Body      string     `json:"body"`
-			Quote     string     `json:"quote"`
-			Author    string     `json:"author"`
-			Scope     string     `json:"scope"`
-			DOMAnchor *DOMAnchor `json:"dom_anchor"`
+			StartLine         int        `json:"start_line"`
+			EndLine           int        `json:"end_line"`
+			Side              string     `json:"side"`
+			Body              string     `json:"body"`
+			Quote             string     `json:"quote"`
+			Author            string     `json:"author"`
+			Scope             string     `json:"scope"`
+			ReservedForGitHub bool       `json:"reserved_for_github"`
+			DOMAnchor         *DOMAnchor `json:"dom_anchor"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -1880,6 +1881,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "File not found", http.StatusNotFound)
 				return
 			}
+			c = s.applyReservedForGitHub(path, c, req.ReservedForGitHub)
 			writeJSONStatus(w, http.StatusCreated, c)
 			return
 		}
@@ -1894,11 +1896,26 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "File not found", http.StatusNotFound)
 			return
 		}
+		c = s.applyReservedForGitHub(path, c, req.ReservedForGitHub)
 		writeJSONStatus(w, http.StatusCreated, c)
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// applyReservedForGitHub stamps the reserve flag on a freshly created comment.
+// Creation and the flag are two steps because the Add* constructors already
+// carry a long positional signature; a no-op when reserved is false keeps the
+// ordinary comment path a single write.
+func (s *Server) applyReservedForGitHub(path string, c Comment, reserved bool) Comment {
+	if !reserved {
+		return c
+	}
+	if updated, ok := s.session.Load().SetCommentReservedForGitHub(path, c.ID, true); ok {
+		return updated
+	}
+	return c
 }
 
 // normalizeCommentSide canonicalizes the wire `side` field to crit's internal
@@ -2270,8 +2287,9 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var req struct {
-			Body   string `json:"body"`
-			Author string `json:"author"`
+			Body              string `json:"body"`
+			Author            string `json:"author"`
+			ReservedForGitHub bool   `json:"reserved_for_github"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -2282,6 +2300,11 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c := s.session.Load().AddReviewComment(req.Body, req.Author, s.authUserID())
+		if req.ReservedForGitHub {
+			if updated, ok := s.session.Load().SetReviewCommentReservedForGitHub(c.ID, true); ok {
+				c = updated
+			}
+		}
 		writeJSONStatus(w, http.StatusCreated, c)
 
 	case http.MethodDelete:

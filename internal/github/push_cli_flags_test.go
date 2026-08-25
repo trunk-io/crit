@@ -192,7 +192,7 @@ func TestPushShouldExitFailure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := pushShouldExitFailure(tt.posted, tt.patched, tt.deleted, tt.exportPath, tt.postFailed, tt.deleteFailed)
+			got := pushShouldExitFailure(tt.posted, tt.patched, tt.deleted, 0, tt.exportPath, tt.postFailed, tt.deleteFailed)
 			if got != tt.wantOut {
 				t.Errorf("pushShouldExitFailure = %v, want %v", got, tt.wantOut)
 			}

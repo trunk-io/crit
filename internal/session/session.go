@@ -152,15 +152,22 @@ type Comment struct {
 	// Legacy comments lacking this field are treated as zero on read; the
 	// timeline visibility filter falls back to round 1 for legacy resolved
 	// comments (see commentsAtOrBeforeRound docs).
-	ResolvedRound      int     `json:"resolved_round,omitempty"`
-	Live               bool    `json:"live,omitempty"`
-	CarriedForward     bool    `json:"carried_forward,omitempty"`
-	ReviewRound        int     `json:"review_round,omitempty"`
-	Replies            []Reply `json:"replies,omitempty"`
-	GitHubID           int64   `json:"github_id,omitempty"`
-	GitLabNoteID       int64   `json:"gitlab_note_id,omitempty"`
-	GitLabDiscussionID string  `json:"gitlab_discussion_id,omitempty"`
-	GitLabResolved     *bool   `json:"gitlab_resolved,omitempty"`
+	ResolvedRound  int     `json:"resolved_round,omitempty"`
+	Live           bool    `json:"live,omitempty"`
+	CarriedForward bool    `json:"carried_forward,omitempty"`
+	ReviewRound    int     `json:"review_round,omitempty"`
+	Replies        []Reply `json:"replies,omitempty"`
+	// ReservedForGitHub marks a comment the reviewer wrote for the pull request
+	// rather than for the local coding agent. Reserved comments are withheld from
+	// every agent-facing surface (finish prompt, `crit comments`, the unresolved
+	// gate that decides Approve vs Finish Review) but are still posted by
+	// `crit push` like any other unresolved comment.
+	ReservedForGitHub bool `json:"reserved_for_github,omitempty"`
+
+	GitHubID           int64  `json:"github_id,omitempty"`
+	GitLabNoteID       int64  `json:"gitlab_note_id,omitempty"`
+	GitLabDiscussionID string `json:"gitlab_discussion_id,omitempty"`
+	GitLabResolved     *bool  `json:"gitlab_resolved,omitempty"`
 
 	// LastPushedBodyHash is a short stable digest of Body at the time of
 	// the most recent successful push (POST or PATCH) to GitHub. Used by
@@ -1605,6 +1612,38 @@ func (s *Session) SetCommentResolved(filePath, id string, resolved bool) (Commen
 	return f.Comments[i], true
 }
 
+// SetCommentReservedForGitHub marks a file comment as reviewer-authored PR
+// feedback, withheld from the agent and shipped by `crit push`.
+func (s *Session) SetCommentReservedForGitHub(filePath, id string, reserved bool) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, i := s.locateFileCommentLocked(filePath, id)
+	if f == nil {
+		return Comment{}, false
+	}
+	f.Comments[i].ReservedForGitHub = reserved
+	f.Comments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	s.scheduleWrite()
+	return f.Comments[i], true
+}
+
+// SetReviewCommentReservedForGitHub is the review-level counterpart of
+// SetCommentReservedForGitHub. Reserved review comments become the PR review
+// body on push rather than inline comments.
+func (s *Session) SetReviewCommentReservedForGitHub(id string, reserved bool) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.reviewComments {
+		if s.reviewComments[i].ID == id {
+			s.reviewComments[i].ReservedForGitHub = reserved
+			s.reviewComments[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			s.scheduleWrite()
+			return s.reviewComments[i], true
+		}
+	}
+	return Comment{}, false
+}
+
 // SetCommentLive marks a comment as live (sent to an agent).
 func (s *Session) SetCommentLive(filePath, id string) bool {
 	s.mu.Lock()
@@ -1868,6 +1907,32 @@ func (s *Session) GetAllComments() map[string][]Comment {
 	return result
 }
 
+// AgentVisible reports whether a comment should reach the coding agent.
+// Comments reserved for GitHub are the reviewer's PR feedback: they stay in
+// review.json and still push, but the agent must never be asked to act on them.
+func (c Comment) AgentVisible() bool { return !c.ReservedForGitHub }
+
+// ReservedForGitHubCount returns the number of unresolved comments held for the
+// pull request rather than the agent, across files and review-level comments.
+func (s *Session) ReservedForGitHubCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := 0
+	for _, c := range s.reviewComments {
+		if !c.Resolved && c.ReservedForGitHub {
+			total++
+		}
+	}
+	for _, f := range s.Files {
+		for _, c := range f.Comments {
+			if !c.Resolved && c.ReservedForGitHub {
+				total++
+			}
+		}
+	}
+	return total
+}
+
 // TotalCommentCount returns the total number of comments across all files and review comments.
 func (s *Session) TotalCommentCount() int {
 	s.mu.RLock()
@@ -1895,19 +1960,21 @@ func (s *Session) NewCommentCount() int {
 	return total
 }
 
-// UnresolvedCommentCount returns the number of unresolved comments across all files and review comments.
+// UnresolvedCommentCount returns the number of unresolved comments that the
+// agent is expected to act on. Comments reserved for GitHub are excluded: they
+// gate neither the finish prompt nor Approve, since the agent never sees them.
 func (s *Session) UnresolvedCommentCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	total := 0
 	for _, c := range s.reviewComments {
-		if !c.Resolved {
+		if !c.Resolved && c.AgentVisible() {
 			total++
 		}
 	}
 	for _, f := range s.Files {
 		for _, c := range f.Comments {
-			if !c.Resolved {
+			if !c.Resolved && c.AgentVisible() {
 				total++
 			}
 		}
