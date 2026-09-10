@@ -126,6 +126,10 @@
         group: (def && def.group) || '',
         description: (def && def.description) || '',
         style: (def && def.style) || 'chip',
+        // Mirrors session.GraphBadge.BadgeAlign: the tests group aligns right
+        // by default so one class of badge reads as a column, and an explicit
+        // value wins.
+        align: (def && def.align) || ((def && def.group) === 'tests' ? 'right' : 'left'),
       };
     });
   }
@@ -248,6 +252,20 @@
       var loc = el('div', 'crit-graph-location');
       loc.appendChild(el('span', 'crit-graph-path', target));
       loc.appendChild(buildCopyButton(target, 'Copy'));
+      // The link is offered only when the file is actually in this review.
+      // A graph is routinely authored in plan phase against files that do not
+      // exist yet, and a button that navigates nowhere is worse than none.
+      if (node && node.file && hooks.fileInReview && hooks.fileInReview(node.file)) {
+        var open = el('button', 'crit-graph-open', 'Review');
+        open.type = 'button';
+        open.setAttribute('title', 'Open ' + node.file + ' in the files view');
+        open.addEventListener('click', function (e) {
+          e.stopPropagation();
+          hideHoverCard();
+          if (hooks.openFile) hooks.openFile(node.file, node.line || 0);
+        });
+        loc.appendChild(open);
+      }
       card.appendChild(loc);
     }
 
@@ -367,7 +385,7 @@
       title.textContent = b.description ? b.label + ' — ' + b.description : b.label;
       chip.appendChild(title);
       group.appendChild(chip);
-      return { el: chip, rect: rect, text: text };
+      return { el: chip, rect: rect, text: text, align: b.align };
     });
 
     // Pass 2: size each chip to its measured label.
@@ -382,38 +400,49 @@
       c.rect.setAttribute('width', String(c.width));
     });
 
-    // Pass 3: lay out rows, wrapping so a heavily badged node grows downward
-    // rather than sideways past its own edges.
-    var maxRow = Math.max(box.width, 120);
-    var rows = [[]];
-    var rowWidth = 0;
-    chips.forEach(function (c) {
-      var next = rowWidth === 0 ? c.width : rowWidth + CHIP_GAP + c.width;
-      if (rowWidth > 0 && next > maxRow) {
-        rows.push([c]);
-        rowWidth = c.width;
-        return;
-      }
-      rows[rows.length - 1].push(c);
-      rowWidth = next;
+    // Pass 3: two clusters, left-anchored and right-anchored. Splitting them
+    // is what makes a wall of chips readable — "how is this tested" is
+    // answered for every node in one column, without reading the chips that
+    // answer something else. They share a row when both fit, and fall to
+    // separate rows when they would collide.
+    var left = chips.filter(function (c) {
+      return c.align !== 'right';
+    });
+    var right = chips.filter(function (c) {
+      return c.align === 'right';
     });
 
     var y = box.y + box.height + topGap;
-    rows.forEach(function (row) {
-      var total = row.reduce(function (acc, c) {
-        return acc + c.width;
-      }, 0) + CHIP_GAP * (row.length - 1);
-      var x = box.x + box.width / 2 - total / 2;
-      row.forEach(function (c) {
-        c.rect.setAttribute('x', String(x));
-        c.rect.setAttribute('y', String(y));
-        c.text.setAttribute('x', String(x + c.width / 2));
-        c.text.setAttribute('y', String(y + CHIP_HEIGHT / 2));
-        c.text.setAttribute('text-anchor', 'middle');
-        c.text.setAttribute('dominant-baseline', 'central');
-        x += c.width + CHIP_GAP;
-      });
-      y += CHIP_HEIGHT + CHIP_ROW_GAP;
+    var leftW = clusterWidth(left);
+    var rightW = clusterWidth(right);
+    var sameRow = leftW === 0 || rightW === 0 || leftW + rightW + CHIP_GAP * 2 <= box.width;
+
+    if (left.length) {
+      placeCluster(left, box.x, y);
+      if (!sameRow) y += CHIP_HEIGHT + CHIP_ROW_GAP;
+    }
+    if (right.length) {
+      placeCluster(right, box.x + box.width - rightW, y);
+    }
+  }
+
+  function clusterWidth(chips) {
+    if (!chips.length) return 0;
+    return chips.reduce(function (acc, c) {
+      return acc + c.width;
+    }, 0) + CHIP_GAP * (chips.length - 1);
+  }
+
+  function placeCluster(chips, startX, y) {
+    var x = startX;
+    chips.forEach(function (c) {
+      c.rect.setAttribute('x', String(x));
+      c.rect.setAttribute('y', String(y));
+      c.text.setAttribute('x', String(x + c.width / 2));
+      c.text.setAttribute('y', String(y + CHIP_HEIGHT / 2));
+      c.text.setAttribute('text-anchor', 'middle');
+      c.text.setAttribute('dominant-baseline', 'central');
+      x += c.width + CHIP_GAP;
     });
   }
 
@@ -613,6 +642,11 @@
     // stays free of transport and auth concerns.
     postComment: null,
     renderCommentCard: null,
+    // fileInReview(path) -> bool and openFile(path, line). Injected because
+    // the review's file list belongs to app.js; the viewer only asks whether a
+    // jump is possible and delegates the jump itself.
+    fileInReview: null,
+    openFile: null,
   };
 
   function renderPanel() {
@@ -957,6 +991,8 @@
   function setHooks(next) {
     hooks.postComment = (next && next.postComment) || null;
     hooks.renderCommentCard = (next && next.renderCommentCard) || null;
+    hooks.fileInReview = (next && next.fileInReview) || null;
+    hooks.openFile = (next && next.openFile) || null;
   }
 
   function setComments(comments) {

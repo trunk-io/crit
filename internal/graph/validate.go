@@ -41,6 +41,7 @@ const (
 	CodeBadgeMissingLabel      = "badge_missing_label"
 	CodeBadgeUnused            = "badge_unused"
 	CodeBadgeBadStyle          = "badge_bad_style"
+	CodeBadgeBadAlign          = "badge_bad_align"
 	CodeBadgeLongLabel         = "badge_long_label"
 	CodeNodeManyOutlines       = "node_many_outlines"
 	CodeSubgraphNoMetadata     = "subgraph_no_metadata"
@@ -245,42 +246,59 @@ func validateLegend(d *session.GraphDiagnostics, g *session.Graph) {
 			continue
 		}
 		seen[b.ID] = true
-		if strings.TrimSpace(b.Label) == "" {
-			add(d, session.GraphDiagnostic{
-				Code: CodeBadgeMissingLabel, Severity: session.SeverityError,
-				Badge:   b.ID,
-				Message: "badge " + q(b.ID) + " has no label",
-				Fix:     `set "label" to the short text the badge shows`,
-			})
-		}
-		if b.Style != "" && b.Style != session.BadgeStyleChip && b.Style != session.BadgeStyleOutline {
-			add(d, session.GraphDiagnostic{
-				Code: CodeBadgeBadStyle, Severity: session.SeverityError,
-				Badge:   b.ID,
-				Message: "badge " + q(b.ID) + " has style " + q(b.Style),
-				Fix:     `set "style" to "chip" (a small labelled chip, the default) or "outline" (a ring around the node)`,
-			})
-		}
-		// A chip's label is rendered inside the node's own footprint, so a long
-		// one makes every node carrying it wide enough to distort the layout.
-		if b.Style != session.BadgeStyleOutline && len([]rune(b.Label)) > maxChipLabelRunes {
-			add(d, session.GraphDiagnostic{
-				Code: CodeBadgeLongLabel, Severity: session.SeverityWarning,
-				Badge:   b.ID,
-				Message: fmt.Sprintf("chip label %q is %d characters", b.Label, len([]rune(b.Label))),
-				Fix:     fmt.Sprintf("keep a chip to one short word (<= %d characters) — it is drawn on every node that carries it; put the detail in \"description\"", maxChipLabelRunes),
-			})
-		}
-		if !palette[b.Color] {
-			add(d, session.GraphDiagnostic{
-				Code: CodeBadgeBadColor, Severity: session.SeverityError,
-				Badge:   b.ID,
-				Message: "badge " + q(b.ID) + " uses color " + q(b.Color) + ", which is not in the palette",
-				Fix:     "use one of: " + strings.Join(session.GraphPalette, ", "),
-			})
-		}
+		validateBadge(d, palette, b)
 	}
+	reportUnusedBadges(d, g)
+}
 
+// validateBadge checks one legend entry's own fields.
+func validateBadge(d *session.GraphDiagnostics, palette map[string]bool, b session.GraphBadge) {
+	if strings.TrimSpace(b.Label) == "" {
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeMissingLabel, Severity: session.SeverityError,
+			Badge:   b.ID,
+			Message: "badge " + q(b.ID) + " has no label",
+			Fix:     `set "label" to the short text the badge shows`,
+		})
+	}
+	if b.Align != "" && b.Align != session.BadgeAlignLeft && b.Align != session.BadgeAlignRight {
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeBadAlign, Severity: session.SeverityError,
+			Badge:   b.ID,
+			Message: "badge " + q(b.ID) + " has align " + q(b.Align),
+			Fix:     `set "align" to "left" or "right", or omit it — the tests group defaults to right and everything else to left`,
+		})
+	}
+	if b.Style != "" && b.Style != session.BadgeStyleChip && b.Style != session.BadgeStyleOutline {
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeBadStyle, Severity: session.SeverityError,
+			Badge:   b.ID,
+			Message: "badge " + q(b.ID) + " has style " + q(b.Style),
+			Fix:     `set "style" to "chip" (a small labelled chip, the default) or "outline" (a ring around the node)`,
+		})
+	}
+	// A chip's label is rendered inside the node's own footprint, so a long
+	// one makes every node carrying it wide enough to distort the layout.
+	if b.Style != session.BadgeStyleOutline && len([]rune(b.Label)) > maxChipLabelRunes {
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeLongLabel, Severity: session.SeverityWarning,
+			Badge:   b.ID,
+			Message: fmt.Sprintf("chip label %q is %d characters", b.Label, len([]rune(b.Label))),
+			Fix:     fmt.Sprintf("keep a chip to one short word (<= %d characters) — it is drawn on every node that carries it; put the detail in \"description\"", maxChipLabelRunes),
+		})
+	}
+	if !palette[b.Color] {
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeBadColor, Severity: session.SeverityError,
+			Badge:   b.ID,
+			Message: "badge " + q(b.ID) + " uses color " + q(b.Color) + ", which is not in the palette",
+			Fix:     "use one of: " + strings.Join(session.GraphPalette, ", "),
+		})
+	}
+}
+
+// reportUnusedBadges flags dead vocabulary: a badge nothing carries.
+func reportUnusedBadges(d *session.GraphDiagnostics, g *session.Graph) {
 	used := map[string]bool{}
 	for _, n := range g.Nodes {
 		for _, b := range n.Badges {
@@ -288,14 +306,15 @@ func validateLegend(d *session.GraphDiagnostics, g *session.Graph) {
 		}
 	}
 	for _, b := range g.Legend {
-		if !used[b.ID] {
-			add(d, session.GraphDiagnostic{
-				Code: CodeBadgeUnused, Severity: session.SeverityWarning,
-				Badge:   b.ID,
-				Message: "badge " + q(b.ID) + " is defined but no node carries it",
-				Fix:     "put it on a node, or drop it from the legend",
-			})
+		if used[b.ID] {
+			continue
 		}
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeUnused, Severity: session.SeverityWarning,
+			Badge:   b.ID,
+			Message: "badge " + q(b.ID) + " is defined but no node carries it",
+			Fix:     "put it on a node, or drop it from the legend",
+		})
 	}
 }
 

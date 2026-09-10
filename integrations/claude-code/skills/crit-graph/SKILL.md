@@ -127,6 +127,10 @@ Every other badge is a chip, and a chip's label must be **one short word**
 (`go`, `unit`, `e2e`, `pr2`) — it is drawn on every node carrying it. Put the
 sentence in `description`; that is what the tooltip and the legend show.
 
+Put testing badges in `"group": "tests"`. Chips in that group align right and
+everything else aligns left, which turns the testing answer into a column a
+reader can scan down the diagram — so the grouping is not cosmetic.
+
 **Stack phase** — when the work lands as a stack of PRs, say which one
 introduces each node:
 

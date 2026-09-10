@@ -331,3 +331,50 @@ test('every flowchart direction has a stated reading order', () => {
   assert.ok(src.includes('function renderAxis'), 'the direction must be rendered');
   assert.ok(src.includes('attachEntryMarker'), 'entry points must be marked on the nodes');
 });
+
+// Splitting badges by side is what makes a wall of chips readable: "how is
+// this tested" is answered for every node in one column, without reading the
+// chips that answer something else.
+test('test badges align right, everything else left', () => {
+  const g = {
+    legend: [
+      { id: 'go', label: 'go', color: 'teal', group: 'tests' },
+      { id: 'e2e', label: 'e2e', color: 'indigo', group: 'tests' },
+      { id: 'fixed', label: 'fixed', color: 'orange', group: 'history' },
+      { id: 'pr2', label: 'pr2', color: 'violet' },
+    ],
+  };
+  const badges = view.badgesFor(g, { badges: ['go', 'e2e', 'fixed', 'pr2'] });
+  const side = Object.fromEntries(badges.map((b) => [b.id, b.align]));
+  assert.strictEqual(side.go, 'right');
+  assert.strictEqual(side.e2e, 'right');
+  // A non-tests group, and no group at all, both fall left.
+  assert.strictEqual(side.fixed, 'left');
+  assert.strictEqual(side.pr2, 'left');
+});
+
+// An explicit align must win, so the convention has an escape hatch.
+test('an explicit align overrides the group default', () => {
+  const g = { legend: [{ id: 'go', label: 'go', color: 'teal', group: 'tests', align: 'left' }] };
+  assert.strictEqual(view.badgesFor(g, { badges: ['go'] })[0].align, 'left');
+});
+
+// The link is offered only when the file is in this review: a plan-phase graph
+// names files that do not exist yet, and a standalone graph has no file list,
+// so a button that navigates nowhere is worse than none.
+test('the review link is gated on the file being in the review', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(src.includes('hooks.fileInReview && hooks.fileInReview(node.file)'),
+    'the link must be gated on fileInReview');
+  assert.ok(src.includes('hooks.openFile'), 'the jump itself is delegated to app.js');
+
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  assert.ok(app.includes('fileInReview: graphFileInReview'), 'app.js must supply the gate');
+  assert.ok(app.includes('openFile: graphOpenFile'), 'app.js must supply the jump');
+  // scrollToFile already handles a collapsed section and a lazy body, which a
+  // naive scrollIntoView does not.
+  const fn = app.slice(app.indexOf('function graphOpenFile'));
+  const body = fn.slice(0, fn.indexOf('\n  }'));
+  assert.ok(body.includes('setGraphVisible(false)'), 'must leave the graph for the diff');
+  assert.ok(body.includes('scrollToFile(path)'), 'must reuse scrollToFile');
+});

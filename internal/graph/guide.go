@@ -41,6 +41,7 @@ var diagnosticRemedy = map[string]string{
 	CodeBadgeMissingLabel:      "A badge needs the short text it displays.",
 	CodeBadgeUnused:            "A defined badge that no node carries is dead vocabulary (warning). Drop it or use it.",
 	CodeBadgeBadStyle:          "A badge's `style` is `chip` (a small labelled chip under the node, the default) or `outline` (a ring around the node). Use `outline` for the one badge meaning \"look at this\" — a chip competes with the other chips, a ring reads across the whole diagram.",
+	CodeBadgeBadAlign:          "A chip's `align` is `left` or `right`. Omit it and the `tests` group aligns right while everything else aligns left, so one class of badge can be scanned as a column.",
 	CodeBadgeLongLabel:         "A chip is drawn on every node carrying it, so a long label distorts the layout (warning). Keep it to one short word and put the detail in `description`.",
 	CodeNodeManyOutlines:       "Outline rings do not compose — a second would draw a second border around the same node (warning). Keep one outline badge per node and express the rest as chips.",
 	CodeSubgraphNoMetadata:     "A subgraph without a `nodes` entry renders as a plain container with no hover card (warning). Add one with `\"kind\": \"module\"` to describe the module.",
@@ -230,6 +231,21 @@ A badge is drawn in one of two channels, set by `)
   status still reads. This is the channel for "look at this one": a chip would
   compete with the chips beside it, while a ring reads across the whole
   diagram at a glance. Use it for **one** badge — rings do not compose.
+
+Chips also take a side. `)
+	b.WriteString("`align`")
+	b.WriteString(` is `)
+	b.WriteString("`\"left\"` or `\"right\"`")
+	b.WriteString(`, and
+omitting it aligns the `)
+	b.WriteString("`tests`")
+	b.WriteString(` group **right** and everything else
+**left**. That split is what makes a wall of chips readable: the testing answer
+becomes a column you can scan down the diagram without reading the chips that
+answer something else. Put testing badges in `)
+	b.WriteString("`\"group\": \"tests\"`")
+	b.WriteString(` and the
+alignment follows automatically.
 
 ## Fixing an invalid graph
 

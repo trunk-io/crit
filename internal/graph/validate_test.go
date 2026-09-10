@@ -63,7 +63,7 @@ func TestGuideDocumentsEveryCode(t *testing.T) {
 		CodeNodeMissingSignature, CodeNodeMissingFile, CodeNodeMissingLine,
 		CodeNodeAbsolutePath, CodeNodeIsolated, CodeBadgeUnknown, CodeBadgeBadColor,
 		CodeBadgeDuplicateID, CodeBadgeMissingLabel, CodeBadgeUnused,
-		CodeBadgeBadStyle, CodeBadgeLongLabel, CodeNodeManyOutlines,
+		CodeBadgeBadStyle, CodeBadgeBadAlign, CodeBadgeLongLabel, CodeNodeManyOutlines,
 		CodeSubgraphNoMetadata, CodeSubgraphWrongKind, CodePhaseInvalid,
 		CodeVersionUnsupported, CodeTitleMissing, CodeGraphTooLarge,
 	}

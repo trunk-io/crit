@@ -7397,3 +7397,33 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   fill: var(--crit-brand) !important;
   stroke: none !important;
 }
+
+/* The line a graph node pointed at, flashed on arrival so a long diff does
+   not mean hunting for it. Best-effort: the declaration line is often not in
+   the changed hunks at all. */
+.crit-graph-target-line {
+  animation: crit-graph-target-flash 2.2s ease-out;
+}
+
+@keyframes crit-graph-target-flash {
+  0%, 55% { background: color-mix(in srgb, var(--crit-brand) 28%, transparent); }
+  100% { background: transparent; }
+}
+
+/* "Review" — jump from a node to its file in the diff. Shown only when the
+   file is actually in this review. */
+.crit-graph-open {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--crit-brand);
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.crit-graph-open:hover {
+  background: var(--crit-brand-bg);
+}

@@ -110,6 +110,13 @@ Status colour is separate and built in: `existing`, `new`, `modified`,
   "description": "needs the most human attention" }
 ```
 
+Chips also take a **side**. `align` is `left` or `right`; omitting it aligns
+the `tests` group right and everything else left. That split is what makes a
+wall of chips readable — the testing answer becomes a column you can scan down
+the diagram without reading the chips that answer something else. Put testing
+badges in `"group": "tests"` and the alignment follows, so it stays consistent
+between graphs without anyone remembering to set it.
+
 ## Reading direction
 
 A call hierarchy is only legible if you know which way it flows, so the viewer
@@ -191,7 +198,17 @@ the default and the graph is one click (or one `#graph`) away.
 
 In the browser, the **Graph** toggle switches between the diagram and the
 files, and keeps the `#graph` fragment in step so a copied URL reopens the same
-view. Click any node. The panel shows
+view. Click any node.
+
+The node card carries two ways out of the diagram:
+
+- **Copy** — puts `file:line` on the clipboard, always available, because the
+  location is real even when the file is not in this diff.
+- **Review** — leaves the graph and lands on that file's section in the files
+  view, flashing the declaration line when it happens to be rendered. It
+  appears **only when the file is in this review**: a plan-phase graph names
+  files that do not exist yet, and a graph served standalone has no file list
+  at all, so a button that navigated nowhere would be worse than none. The panel shows
 its signature, its `file:line` with a copy button, its badges, and its comment
 thread.
 

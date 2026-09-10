@@ -84,6 +84,17 @@ type GraphBadge struct {
 	// The ring is drawn OUTSIDE the node's own border rather than recoloring
 	// it, because the border already carries status.
 	Style string `json:"style,omitempty"`
+
+	// Align puts a chip on the left or right side under the node. It exists so
+	// one class of badge can be scanned as a column down the diagram, which is
+	// what makes a wall of chips readable — "how is this tested" answered for
+	// every node at once, without reading the ones that answer something else.
+	//
+	// Empty means: right for the tests group, left otherwise. Deriving the
+	// common case from the group the author already writes keeps the
+	// convention automatic (and therefore consistent across graphs), while the
+	// explicit value stays available when it does not fit.
+	Align string `json:"align,omitempty"`
 }
 
 // Badge styles.
@@ -91,6 +102,29 @@ const (
 	BadgeStyleChip    = "chip"
 	BadgeStyleOutline = "outline"
 )
+
+// Badge alignments.
+const (
+	BadgeAlignLeft  = "left"
+	BadgeAlignRight = "right"
+)
+
+// GraphGroupTests is the badge group whose chips align right by default. It is
+// a named constant rather than an inline string because the alignment
+// convention depends on it, and a silently mistyped group would just move
+// chips.
+const GraphGroupTests = "tests"
+
+// BadgeAlign resolves a badge's side, applying the group default.
+func (b GraphBadge) BadgeAlign() string {
+	if b.Align != "" {
+		return b.Align
+	}
+	if b.Group == GraphGroupTests {
+		return BadgeAlignRight
+	}
+	return BadgeAlignLeft
+}
 
 // GraphDiagnostic is one validation finding. Every field exists to make an
 // agent's repair loop mechanical: Code is stable and greppable, Node/Badge/Line

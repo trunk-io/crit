@@ -8576,6 +8576,8 @@
     window.crit.graphView.setHooks({
       postComment: postGraphComment,
       renderCommentCard: null,
+      fileInReview: graphFileInReview,
+      openFile: graphOpenFile,
     });
     window.crit.graphView.render(root, graphData, graphComments, opts);
   }
@@ -8604,6 +8606,52 @@
     if (graphVisible || !graphViewAvailable()) return;
     if ((files || []).length > 0) return;
     setGraphVisible(true);
+  }
+
+  // graphFileInReview answers whether a node's file is in this review, so the
+  // viewer can offer a jump only when there is somewhere to jump to. A
+  // plan-phase graph names files that do not exist yet, and a graph served
+  // standalone has no file list at all.
+  function graphFileInReview(path) {
+    if (!path) return false;
+    return (files || []).some(function (f) {
+      return f.path === path;
+    });
+  }
+
+  // graphOpenFile leaves the graph for the diff and lands on the file. It
+  // reuses scrollToFile, which already handles a collapsed section and a lazy
+  // body — the two things that made a naive scrollIntoView land in the wrong
+  // place.
+  function graphOpenFile(path, line) {
+    if (!graphFileInReview(path)) return;
+    setGraphVisible(false);
+    scrollToFile(path);
+    if (line > 0) setTimeout(function () { highlightGraphTargetLine(path, line); }, 250);
+  }
+
+  // highlightGraphTargetLine flashes the declaration the graph pointed at, so
+  // arriving in a long diff does not mean hunting for the line the node named.
+  //
+  // Best-effort by nature: a node's declaration line is frequently NOT in the
+  // changed hunks — an existing function whose body changed elsewhere, or a
+  // modified function whose signature line is untouched — and an unrendered
+  // line cannot be highlighted. The jump to the file always works, which is
+  // the part worth promising.
+  function highlightGraphTargetLine(path, line) {
+    const section = document.getElementById('file-section-' + path);
+    if (!section) return;
+    // data-line-num lives on the per-line comment button; the row is its
+    // ancestor. Side "" is the new/current side, which is what a graph's line
+    // number refers to.
+    const btn = section.querySelector(
+      '.diff-comment-btn[data-line-num="' + line + '"][data-side=""]'
+    );
+    const row = btn && btn.closest('.line-block, .diff-line, tr');
+    if (!row) return;
+    row.scrollIntoView({ block: 'center', behavior: 'instant' });
+    row.classList.add('crit-graph-target-line');
+    setTimeout(function () { row.classList.remove('crit-graph-target-line'); }, 2200);
   }
 
   function initGraphViewToggle() {

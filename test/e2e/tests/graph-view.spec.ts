@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { clearAllComments, loadPage } from './helpers';
+import { clearAllComments, getMdPath, loadPage } from './helpers';
 
 // A graph whose node IDs, statuses, and badges are all distinct, so an
 // assertion can tell them apart in the rendered SVG.
@@ -133,6 +133,40 @@ test.describe('Call-hierarchy graph view', () => {
     // handleReq has no attention badge, so no ring.
     const handle = page.locator('.crit-graph-diagram g.node', { hasText: 'handleReq' }).first();
     await expect(handle.locator('.crit-graph-outline')).toHaveCount(0);
+  });
+
+  // Splitting badges by side is what makes a wall of chips readable: the
+  // testing answer is a column, scannable without reading the chips that
+  // answer something else.
+  test('test chips align right and other chips align left', async ({ request, page }) => {
+    const next = JSON.parse(JSON.stringify(GRAPH));
+    next.legend.push({ id: 'pr2', label: 'pr2', color: 'violet', group: 'phase' });
+    next.nodes.handleReq.badges = ['integration', 'pr2'];
+    await seedGraph(request, next);
+    await loadPage(page);
+    await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
+    await expect(page.locator('.crit-graph-diagram svg')).toBeVisible();
+
+    const chips = await page
+      .locator('.crit-graph-diagram g.node', { hasText: 'handleReq' })
+      .first()
+      .evaluate((el) => {
+        const shape = el.querySelector('rect.label-container, rect:not(.crit-graph-outline)') as SVGGraphicsElement;
+        const sb = shape.getBBox();
+        return Array.from(el.querySelectorAll('.crit-graph-chip')).map((c) => {
+          const r = (c.querySelector('rect') as SVGGraphicsElement).getBBox();
+          return {
+            label: (c.querySelector('text') as SVGElement).textContent,
+            fromLeft: Math.round(r.x - sb.x),
+            fromRight: Math.round(sb.x + sb.width - (r.x + r.width)),
+          };
+        });
+      });
+
+    const tests = chips.find((c) => c.label === 'integration')!;
+    const phase = chips.find((c) => c.label === 'pr2')!;
+    expect(tests.fromRight).toBeLessThan(2);
+    expect(phase.fromLeft).toBeLessThan(2);
   });
 
   // A reader who guesses the direction wrong reads the call tree backwards,
@@ -354,6 +388,45 @@ test.describe('Call-hierarchy graph view', () => {
     await expect(page.locator('#graphNodePanel')).toHaveClass(/open/);
     await expect(page.locator('#graphNodePanel .crit-graph-card-name')).toHaveText('mintToken');
     await page.evaluate(() => (window as any).applyTheme('system'));
+  });
+
+  // The node card's other half: copy the location, or go read it. The link is
+  // offered only when the file is in this review, because a plan-phase graph
+  // names files that do not exist yet.
+  test('the review link jumps to the file in the diff', async ({ request, page }) => {
+    // Point a node at a file the fixture review actually contains.
+    const mdPath = await getMdPath(request);
+    const next = JSON.parse(JSON.stringify(GRAPH));
+    next.nodes.handleReq.file = mdPath;
+    next.nodes.handleReq.line = 1;
+    await seedGraph(request, next);
+    await loadPage(page);
+    await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'handleReq' }).first().click();
+
+    const link = page.locator('#graphNodePanel .crit-graph-open');
+    await expect(link).toBeVisible();
+    await link.click();
+
+    // It leaves the graph for the diff and lands on that file's section.
+    await expect(page.locator('#graphRoot')).toBeHidden();
+    await expect(page.locator('#filesContainer')).toBeVisible();
+    // An attribute selector, not `#id`: the path contains a dot.
+    const section = page.locator(`[id="file-section-${mdPath}"]`);
+    await expect(section).toHaveAttribute('open', '');
+    const top = await section.evaluate((el) => el.getBoundingClientRect().top);
+    expect(top).toBeLessThan(400);
+  });
+
+  // A node whose file is not in the review must not offer a link that
+  // navigates nowhere.
+  test('no review link for a file outside the review', async ({ page }) => {
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
+    await expect(page.locator('#graphNodePanel .crit-graph-path')).toHaveText('src/core/token.ts');
+    await expect(page.locator('#graphNodePanel .crit-graph-open')).toHaveCount(0);
+    // The copy button is always there — the location is real even when the
+    // file is not in this diff.
+    await expect(page.locator('#graphNodePanel .crit-graph-copy')).toHaveCount(1);
   });
 
   test('the toggle switches back to the file list', async ({ page }) => {
