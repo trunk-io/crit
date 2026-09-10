@@ -191,3 +191,34 @@ func TestScanDiagramLabelBackfill(t *testing.T) {
 		}
 	}
 }
+
+// A statement crit cannot read has already produced a precise diagnostic.
+// Committing the fragment it read before bailing would add a second finding
+// naming a node that does not exist, sending an author to fix a phantom.
+func TestScanDiagramUnparsableStatementCommitsNothing(t *testing.T) {
+	sc := ScanDiagram("flowchart LR\n  mint-token[\"mintToken\"]\n  good --> alsoGood")
+	for _, id := range nodeIDs(sc) {
+		if id == "mint" || id == "token" {
+			t.Errorf("phantom node %q committed from an unparsable statement: %v", id, nodeIDs(sc))
+		}
+	}
+	// The clean statement after it must still be read.
+	if got := strings.Join(nodeIDs(sc), ","); got != "good,alsoGood" {
+		t.Errorf("nodes = %q, want good,alsoGood", got)
+	}
+	if len(sc.Findings) != 1 || sc.Findings[0].Code != CodeDiagramUnparsable {
+		t.Errorf("want exactly one unparsable finding, got %+v", sc.Findings)
+	}
+}
+
+func TestScanDiagramUnterminatedLabelCommitsNothing(t *testing.T) {
+	sc := ScanDiagram(`flowchart LR` + "\n" + `  a["oops --> b` + "\n" + `  c --> d`)
+	for _, id := range nodeIDs(sc) {
+		if id == "a" || id == "b" {
+			t.Errorf("phantom node %q from an unterminated label: %v", id, nodeIDs(sc))
+		}
+	}
+	if got := strings.Join(nodeIDs(sc), ","); got != "c,d" {
+		t.Errorf("nodes = %q, want c,d", got)
+	}
+}

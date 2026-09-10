@@ -11,7 +11,7 @@ import (
 var publicCommandNames = []string{
 	"share", "fetch", "unpublish", "install", "config", "check", "pr", "mr", "pull",
 	"push", "comment", "comments", "review", "live", "preview", "plan", "story",
-	"auth", "stop", "status", "stats", "cleanup",
+	"graph", "auth", "stop", "status", "stats", "cleanup",
 }
 
 func TestCommandRegistry_PublicInventory(t *testing.T) {
@@ -155,6 +155,7 @@ func TestHelpInterceptionOnlyUsesLeadingCommandArgument(t *testing.T) {
 		{"comment", "--", "--help"},
 		{"comment", "--output", "--help"},
 		{"story", "--story-file", "--help"},
+		{"graph", "--check", "--help"},
 	} {
 		t.Run(strings.Join(args, "/"), func(t *testing.T) {
 			registry := append([]commandDescriptor(nil), commandRegistry...)
@@ -177,7 +178,7 @@ func TestHelpInterceptionOnlyUsesLeadingCommandArgument(t *testing.T) {
 }
 
 func TestLegacyBareHelpUsesRegistryRenderer(t *testing.T) {
-	for _, name := range []string{"config", "story"} {
+	for _, name := range []string{"config", "story", "graph"} {
 		t.Run(name, func(t *testing.T) {
 			flagHelp := captureStderr(t, func() {
 				if _, err := dispatchWithRegistry([]string{name, "--help"}, commandRegistry); err != nil {
@@ -202,6 +203,7 @@ func TestCommandHelpDocumentsKeyOptions(t *testing.T) {
 		"comment": {"--reply-to", "--resolve", "--json", "--scope"},
 		"plan":    {"[--name <slug>]"},
 		"story":   {"--no-open", "--pr", "--range", "--scope", "--vcs"},
+		"graph":   {"--check", "--template", "--guide", "--phase", "--plan", "--clear"},
 		"stop":    {"[file...]"},
 	}
 	for name, expected := range tests {

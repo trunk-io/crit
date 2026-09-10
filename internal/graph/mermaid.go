@@ -198,10 +198,20 @@ func ScanDiagram(src string) Scan {
 // scanStatement tokenizes one node/edge statement into groups of IDs separated
 // by edge operators, then joins consecutive groups into edges (the cross
 // product, so `a & b --> c` yields two edges).
+//
+// Nodes and edges are buffered and committed only if the whole statement
+// scanned cleanly. A statement crit cannot read has already produced a precise
+// diagnostic, and committing the fragment it managed to read before bailing
+// would add a second finding naming a node that does not exist — `mint-token`
+// would report both "unparsable" and "node `mint` has no metadata", sending an
+// author to fix a phantom.
 func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
 	var groups [][]string
+	var pending []ScanNode
+	var labelBackfill []ScanNode
 	cur := []string{}
 	pos := 0
+	failed := false
 
 	for pos < len(line) {
 		if line[pos] == ' ' || line[pos] == '\t' {
@@ -238,19 +248,14 @@ func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
 					Message: "unterminated node label after `" + id + "`",
 					Fix:     `close the bracket, and double-quote any label containing brackets: id["Label"]`,
 				})
-				pos = len(line)
+				failed = true
+				break
 			}
 			cur = append(cur, id)
 			if _, dup := seen[id]; !dup {
-				seen[id] = lineNo
-				sc.Nodes = append(sc.Nodes, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: hasShape})
+				pending = append(pending, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: hasShape})
 			} else if hasShape {
-				for i := range sc.Nodes {
-					if sc.Nodes[i].ID == id && sc.Nodes[i].Label == "" {
-						sc.Nodes[i].Label = label
-						sc.Nodes[i].HasShape = true
-					}
-				}
+				labelBackfill = append(labelBackfill, ScanNode{ID: id, Label: label})
 			}
 			continue
 		}
@@ -263,10 +268,26 @@ func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
 			Message: "unexpected `" + string(line[pos]) + "` in: " + truncate(line, 60),
 			Fix:     "node IDs must match [A-Za-z_][A-Za-z0-9_]* — no dashes or dots; see `crit graph --guide`",
 		})
+		failed = true
+		break
+	}
+	if failed {
 		return
 	}
 	groups = append(groups, cur)
 
+	for _, n := range pending {
+		seen[n.ID] = n.Line
+		sc.Nodes = append(sc.Nodes, n)
+	}
+	for _, bf := range labelBackfill {
+		for i := range sc.Nodes {
+			if sc.Nodes[i].ID == bf.ID && sc.Nodes[i].Label == "" {
+				sc.Nodes[i].Label = bf.Label
+				sc.Nodes[i].HasShape = true
+			}
+		}
+	}
 	for i := 0; i+1 < len(groups); i++ {
 		for _, from := range groups[i] {
 			for _, to := range groups[i+1] {

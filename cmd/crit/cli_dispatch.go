@@ -146,6 +146,7 @@ Options:
       --no-open           Do not open a browser
   -q, --quiet             On success, suppress connect/start status, tips, and session summary`},
 	{name: "story", handler: runStory, helpFn: printStoryUsage, bareHelp: true},
+	{name: "graph", handler: runGraph, helpFn: printGraphUsage, bareHelp: true},
 	{name: "auth", handler: runAuth, help: `Usage: crit auth <login|logout|whoami|status>
 
 Manage crit-web authentication.
