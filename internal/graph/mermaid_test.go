@@ -65,8 +65,50 @@ func TestScanDiagramNodesAndEdges(t *testing.T) {
 			edges: []string{"a->b", "b->c", "c->d", "d->e"},
 		},
 		{
-			name:  "comments ignored",
-			src:   "flowchart LR\n  %% a --> zzz\n  a --> b %% trailing",
+			name:  "own-line comments ignored",
+			src:   "flowchart LR\n  %% a --> zzz\n  a --> b",
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			// Mermaid accepts `%%` inside a quoted label; a naive comment
+			// strip truncated the statement at the percent signs.
+			name:  "percent signs inside a label are not a comment",
+			src:   `flowchart LR` + "\n" + `  a["50%% off"] --> b`,
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			// A quoted label may span physical lines.
+			name:  "multi-line label",
+			src:   "flowchart LR\n  a[\"multi\nline\"] --> b",
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			// Mermaid 11 edge IDs: `e1@` names the edge, not a node.
+			name:  "edge id is not a node",
+			src:   "flowchart LR\n  a e1@--> b",
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			name:  "edge id with a label",
+			src:   "flowchart LR\n  a e1@-->|lbl| b",
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			// Mermaid 11 node metadata: crit takes display data from its own
+			// map, so the block only has to be consumed, not understood.
+			name:  "at-shape metadata block",
+			src:   `flowchart LR` + "\n" + `  a@{ shape: rect, label: "x" } --> b`,
+			nodes: []string{"a", "b"},
+			edges: []string{"a->b"},
+		},
+		{
+			name:  "at-shape metadata spanning lines",
+			src:   "flowchart LR\n  a@{\n    shape: rect\n  } --> b",
 			nodes: []string{"a", "b"},
 			edges: []string{"a->b"},
 		},
@@ -192,6 +234,34 @@ func TestScanDiagramLabelBackfill(t *testing.T) {
 	}
 }
 
+// An unterminated quote makes Mermaid reject the whole diagram, and it
+// swallows every statement after it, so the finding must point at the line
+// where the quote opened rather than at whatever the join produced.
+func TestScanDiagramUnterminatedQuoteReportsItsOpeningLine(t *testing.T) {
+	sc := ScanDiagram("flowchart LR\n  a[\"oops --> b\n  c --> d")
+	f, ok := findFinding(sc, CodeDiagramUnterminated)
+	if !ok {
+		t.Fatalf("want an unterminated-quote finding, got %+v", sc.Findings)
+	}
+	if f.Line != 2 {
+		t.Errorf("line = %d, want 2 (where the quote opened)", f.Line)
+	}
+}
+
+// Mermaid rejects a `%%` comment that follows content, so crit must too —
+// stripping it let the graph validate and then fail to render with nothing to
+// explain it.
+func TestScanDiagramTrailingCommentIsRejected(t *testing.T) {
+	sc := ScanDiagram("flowchart LR\n  a --> b %% trailing")
+	f, ok := findFinding(sc, CodeDiagramTrailingComment)
+	if !ok {
+		t.Fatalf("want a trailing-comment finding, got %+v", sc.Findings)
+	}
+	if !strings.Contains(f.Fix, "own line") {
+		t.Errorf("fix should state the rule: %q", f.Fix)
+	}
+}
+
 // A statement crit cannot read has already produced a precise diagnostic.
 // Committing the fragment it read before bailing would add a second finding
 // naming a node that does not exist, sending an author to fix a phantom.
@@ -211,8 +281,10 @@ func TestScanDiagramUnparsableStatementCommitsNothing(t *testing.T) {
 	}
 }
 
-func TestScanDiagramUnterminatedLabelCommitsNothing(t *testing.T) {
-	sc := ScanDiagram(`flowchart LR` + "\n" + `  a["oops --> b` + "\n" + `  c --> d`)
+// An unterminated *bracket* (as opposed to quote) is confined to its line, so
+// the statements after it must still be read.
+func TestScanDiagramUnterminatedBracketCommitsNothing(t *testing.T) {
+	sc := ScanDiagram("flowchart LR\n  a[oops --> b\n  c --> d")
 	for _, id := range nodeIDs(sc) {
 		if id == "a" || id == "b" {
 			t.Errorf("phantom node %q from an unterminated label: %v", id, nodeIDs(sc))

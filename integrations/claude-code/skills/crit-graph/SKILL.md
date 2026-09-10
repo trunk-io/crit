@@ -163,6 +163,10 @@ Rules for repairing:
   `flowchart`, `subgraph`, `href`, `call`). Rename the node and keep the word
   as its label.
 - `graph_too_large` is the "not an AST" rule firing. Go back to Step 2 and cut.
+- `diagram_trailing_comment`: Mermaid only allows `%%` on its own line. Move it.
+- `diagram_unquoted_label`: double-quote a label containing brackets.
+- `diagram_unterminated_quote`: a quoted label or `@{...}` block never closes —
+  it swallows every statement after it, so fix it first.
 - If the JSON itself does not parse you get `graph_unparsable_json` in the same
   shape — same loop, no special case.
 

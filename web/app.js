@@ -8469,8 +8469,15 @@
 
   // Exposed for crit-graph-view.js, which renders its own mermaid instance and
   // must resolve the same theme rather than duplicating the media-query logic.
+  // openMermaidOverlay is shared for the same reason: a call hierarchy is the
+  // diagram most likely to need pan/zoom, and the review page already has a
+  // working one.
   window.crit = window.crit || {};
   window.crit.mermaidTheme = getMermaidTheme;
+  window.crit.openMermaidOverlay = function (svg, trigger) {
+    installMermaidOverlay();
+    openMermaidOverlay(svg, trigger);
+  };
 
   function renderMermaidBlocks() {
     // Any document rebuild invalidates the detached overlay clone (and its
@@ -8557,14 +8564,14 @@
     updateGraphViewToggle();
   }
 
-  function renderGraphView() {
+  function renderGraphView(opts) {
     const root = document.getElementById('graphRoot');
     if (!root || !window.crit || !window.crit.graphView) return;
     window.crit.graphView.setHooks({
       postComment: postGraphComment,
       renderCommentCard: null,
     });
-    window.crit.graphView.render(root, graphData, graphComments);
+    window.crit.graphView.render(root, graphData, graphComments, opts);
   }
 
   async function postGraphComment(nodeId, body) {
@@ -8899,6 +8906,12 @@
       mermaid.initialize({ startOnLoad: false, theme: getMermaidTheme() });
       try { mermaid.run(); } catch {}
     }
+    // The graph view is not reached by that run(): mermaid skips nodes it has
+    // already processed, and its theme colors are baked into the emitted SVG
+    // (edge strokes, cluster fills, arrowheads), so only a re-render restyles
+    // it. Node fills come from our own CSS and would have followed the theme
+    // on their own, which is exactly what made this easy to miss.
+    if (graphVisible) renderGraphView({ keepSelection: true });
   };
 
   // ===== Width =====

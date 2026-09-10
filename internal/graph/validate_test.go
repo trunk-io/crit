@@ -56,6 +56,8 @@ func TestGuideDocumentsEveryCode(t *testing.T) {
 	emitted := []string{
 		CodeDiagramEmpty, CodeDiagramMissingHeader, CodeDiagramBadDirection,
 		CodeDiagramForbidden, CodeDiagramUnparsable, CodeDiagramUnbalanced,
+		CodeDiagramTrailingComment, CodeDiagramUnterminated,
+		CodeDiagramUnquotedLabel,
 		CodeDiagramNoNodes, CodeNodesEmpty, CodeNodeMissingMetadata,
 		CodeNodeOrphanMetadata, CodeNodeBadID, CodeNodeReservedID, CodeNodeBadStatus, CodeNodeBadKind,
 		CodeNodeMissingSignature, CodeNodeMissingFile, CodeNodeMissingLine,

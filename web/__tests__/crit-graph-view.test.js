@@ -187,3 +187,49 @@ test('the external status chip has its own colour', () => {
     'external needs an explicit colour, not the filled-chip default'
   );
 });
+
+// useMaxWidth:true scaled a wide hierarchy down to the container, rendering an
+// 18-node graph as unreadable slivers. Both halves of the fix are load-bearing:
+// the mermaid option AND the absence of a max-width in our own CSS, which
+// re-squeezed it when they disagreed.
+test('the diagram renders at natural size, not scaled to fit', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(src.includes('useMaxWidth: false'), 'mermaid must not scale the diagram to the container');
+
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  const rule = css.slice(css.indexOf('.crit-graph-diagram svg {'));
+  const block = rule.slice(0, rule.indexOf('}'));
+  assert.ok(!block.includes('max-width'), 'a max-width here undoes useMaxWidth:false');
+
+  const wrap = css.slice(css.indexOf('.crit-graph-diagram-wrap {'));
+  assert.ok(wrap.slice(0, wrap.indexOf('}')).includes('overflow: auto'), 'the wrapper must scroll');
+});
+
+// The container must NOT carry the `mermaid` class: it is rendered by explicit
+// node, and the class would enrol it in every bare mermaid.run() the review
+// page makes for markdown diagrams.
+test('the diagram container is isolated from global mermaid runs', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(
+    !/el\('div', 'mermaid crit-graph-diagram'\)/.test(src),
+    'the container must not carry the mermaid class'
+  );
+  assert.ok(src.includes('mermaid.run({ nodes: [diagram] })'), 'render by explicit node');
+});
+
+// Mermaid bakes its theme into the emitted SVG and skips processed nodes, so
+// only a re-render restyles the graph on a theme switch.
+test('a theme change re-renders the graph and keeps the selection', () => {
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  const theme = app.slice(app.indexOf('window.applyTheme = function'));
+  const body = theme.slice(0, theme.indexOf('\n  };'));
+  assert.ok(body.includes('renderGraphView({ keepSelection: true })'), 'applyTheme must re-render the graph');
+  assert.ok(app.includes('window.crit.openMermaidOverlay'), 'the pan/zoom overlay must be shared');
+});
+
+// Stats come from the ingest's diagnostics; a graph without them must not
+// report "0 nodes".
+test('the header falls back to counting nodes without diagnostics', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(src.includes('Object.keys(g.nodes || {}).length'), 'need a node-count fallback');
+});

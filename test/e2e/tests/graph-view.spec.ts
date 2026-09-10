@@ -244,6 +244,72 @@ test.describe('Call-hierarchy graph view', () => {
     await expect(drift).toContainText('mintToken: new -> existing');
   });
 
+  // A wide hierarchy must render at natural size and scroll. Letting Mermaid
+  // scale it to the container turned an 18-node graph into unreadable slivers
+  // with no visible labels.
+  test('a wide graph renders full size and scrolls instead of shrinking', async ({ request, page }) => {
+    const ids = Array.from({ length: 18 }, (_, i) => `aVeryLongFunctionName${i}`);
+    const nodes: Record<string, unknown> = {};
+    ids.forEach((id, i) => {
+      nodes[id] = { signature: `${id}()`, file: 'src/a.ts', line: i + 1, status: 'new' };
+    });
+    await seedGraph(request, {
+      title: 'wide',
+      diagram: 'flowchart LR\n  ' + ids.slice(0, -1).map((id, i) => `${id} --> ${ids[i + 1]}`).join('\n  '),
+      nodes,
+    });
+    await loadPage(page);
+    await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
+    await expect(page.locator('.crit-graph-diagram svg')).toBeVisible();
+
+    const m = await page.evaluate(() => {
+      const wrap = document.querySelector('.crit-graph-diagram-wrap') as HTMLElement;
+      const rect = document.querySelector('.crit-graph-diagram g.node rect') as SVGGraphicsElement;
+      return { scrollW: wrap.scrollWidth, clientW: wrap.clientWidth, nodeW: rect.getBoundingClientRect().width };
+    });
+    expect(m.scrollW).toBeGreaterThan(m.clientW + 2);
+    // A squeezed graph rendered these ~39px wide with 16px text inside.
+    expect(m.nodeW).toBeGreaterThan(120);
+  });
+
+  // A call hierarchy is the diagram most likely to outgrow its container, so
+  // it reuses the review page's existing pan/zoom overlay.
+  test('the diagram opens fullscreen with pan and zoom', async ({ page }) => {
+    const expand = page.locator('.crit-graph-expand');
+    await expect(expand).toBeVisible();
+    await expand.click();
+    await expect(page.locator('#mermaidOverlay')).toBeVisible();
+    await expect(page.locator('#mermaidOverlayCanvas svg')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#mermaidOverlay')).toBeHidden();
+  });
+
+  // Mermaid bakes its theme into the emitted SVG and skips nodes it has
+  // already processed, so a theme switch left the graph's edges, clusters and
+  // arrowheads in the old theme while our own node fills followed along —
+  // which is exactly what made it easy to miss.
+  test('switching theme restyles the diagram and keeps the open node', async ({ page }) => {
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
+    await expect(page.locator('#graphNodePanel')).toHaveClass(/open/);
+
+    const before = await page.evaluate(
+      () => document.querySelector('.crit-graph-diagram svg style')!.textContent
+    );
+    await page.evaluate(() => (window as any).applyTheme('dark'));
+    await expect(page.locator('.crit-graph-diagram svg')).toBeVisible();
+    await expect
+      .poll(async () =>
+        page.evaluate(() => document.querySelector('.crit-graph-diagram svg style')!.textContent)
+      )
+      .not.toBe(before);
+
+    // Decoration and the open panel must survive the re-render.
+    await expect(page.locator('.crit-graph-diagram g.node.crit-graph-node')).toHaveCount(4);
+    await expect(page.locator('#graphNodePanel')).toHaveClass(/open/);
+    await expect(page.locator('#graphNodePanel .crit-graph-card-name')).toHaveText('mintToken');
+    await page.evaluate(() => (window as any).applyTheme('system'));
+  });
+
   test('the toggle switches back to the file list', async ({ page }) => {
     await page.locator('#graphViewToggle .toggle-btn[data-graph-view="files"]').click();
     await expect(page.locator('#graphRoot')).toBeHidden();
@@ -251,9 +317,73 @@ test.describe('Call-hierarchy graph view', () => {
   });
 });
 
+// The scanner's governing property is that nothing it accepts may fail to
+// render in Mermaid — a graph that validates and then shows an error is
+// indistinguishable from a crit bug. These are the constructs that actually
+// bit: each one either broke the line-based scanner or was rejected outright
+// while Mermaid accepted it. Rendering them end to end is the guard.
+test.describe('Diagram syntax crit accepts must render', () => {
+  const CASES: Record<string, string> = {
+    'percent signs in a label': 'flowchart LR\n  handleReq["50%% done"] --> mintToken',
+    'label spanning lines': 'flowchart LR\n  handleReq["two\nlines"] --> mintToken',
+    'own-line comment': 'flowchart LR\n  %% a note\n  handleReq --> mintToken',
+    'edge id': 'flowchart LR\n  handleReq e1@--> mintToken',
+    'node metadata block': 'flowchart LR\n  handleReq@{ shape: rect } --> mintToken',
+    'metadata block over lines': 'flowchart LR\n  handleReq@{\n    shape: rect\n  } --> mintToken',
+    'quoted brackets in a label': 'flowchart LR\n  handleReq["fn(x[0])"] --> mintToken',
+    'arrow inside a label': 'flowchart LR\n  handleReq["a --> b"] --> mintToken',
+    'mixed shapes': 'flowchart LR\n  handleReq(("circle")) --> mintToken{{"hex"}}',
+    'ampersand fan-out': 'flowchart LR\n  handleReq --> mintToken & resolveOrg',
+  };
+
+  for (const [name, diagram] of Object.entries(CASES)) {
+    test(name, async ({ request, page }) => {
+      // Only the IDs this diagram actually declares: the join check rejects
+      // metadata for a node the diagram never mentions, and rightly so.
+      const nodes: Record<string, unknown> = {};
+      for (const id of ['handleReq', 'mintToken', 'resolveOrg']) {
+        if (!diagram.includes(id)) continue;
+        nodes[id] = { signature: `${id}()`, file: 'src/a.ts', line: 1, status: 'new' };
+      }
+      // crit accepted it (200), so Mermaid must render it.
+      const res = await request.post('/api/graph', { data: { graph: { title: name, diagram, nodes } } });
+      expect(res.status(), await res.text()).toBe(200);
+
+      await loadPage(page);
+      await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
+      await expect(page.locator('.crit-graph-diagram svg')).toBeVisible();
+      await expect(page.locator('.crit-graph-error')).toHaveCount(0);
+      // Decoration proves the join survived: node IDs were recovered from the
+      // SVG and matched back to the metadata map.
+      await expect(page.locator('.crit-graph-diagram g.node.crit-graph-node').first()).toBeVisible();
+      await request.delete('/api/graph');
+    });
+  }
+});
+
 test.describe('Graph ingest rejection', () => {
   // The API must refuse an invalid graph with the same actionable report the
   // CLI prints, since an agent may be posting straight to a running daemon.
+  // Mermaid rejects a `%%` comment that follows content, so crit must reject
+  // it too — stripping it let the graph validate and then fail to render.
+  test('a trailing comment is refused rather than stripped', async ({ request }) => {
+    const res = await request.post('/api/graph', {
+      data: {
+        graph: {
+          title: 'trailing',
+          diagram: 'flowchart LR\n  a --> b %% note',
+          nodes: {
+            a: { signature: 'a()', file: 'a.ts', line: 1, status: 'new' },
+            b: { signature: 'b()', file: 'b.ts', line: 1, status: 'new' },
+          },
+        },
+      },
+    });
+    expect(res.status()).toBe(422);
+    const body = await res.json();
+    expect(body.items.some((i: { code: string }) => i.code === 'diagram_trailing_comment')).toBeTruthy();
+  });
+
   test('an invalid graph is rejected with per-finding fixes', async ({ request }) => {
     const res = await request.post('/api/graph', {
       data: {

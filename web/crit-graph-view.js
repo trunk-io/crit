@@ -568,6 +568,26 @@
     panel.appendChild(form);
   }
 
+  // attachExpandButton reuses the review page's fullscreen pan/zoom overlay.
+  // A call hierarchy is the diagram most likely to outgrow its container, and
+  // the alternative to reuse is a second pan/zoom implementation.
+  function attachExpandButton(wrap) {
+    if (!window.crit || !window.crit.openMermaidOverlay) return;
+    if (wrap.querySelector('.crit-graph-expand')) return;
+    var svg = wrap.querySelector('.crit-graph-diagram svg');
+    if (!svg) return;
+    var btn = el('button', 'crit-graph-expand', '\u26F6 Expand');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Open the call hierarchy fullscreen');
+    btn.setAttribute('title', 'Open fullscreen');
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var current = wrap.querySelector('.crit-graph-diagram svg');
+      if (current) window.crit.openMermaidOverlay(current, btn);
+    });
+    wrap.appendChild(btn);
+  }
+
   function renderLegend(container) {
     var graph = state.graph;
     var wrap = el('div', 'crit-graph-legend');
@@ -644,9 +664,12 @@
     var head = el('div', 'crit-graph-header');
     head.appendChild(el('h2', 'crit-graph-title', g.title || 'Call hierarchy'));
     var meta = el('div', 'crit-graph-meta');
+    // Stats normally come from the ingest's diagnostics; fall back to counting
+    // the metadata map so a graph written without them does not read "0 nodes".
     var st = (g.diagnostics && g.diagnostics.stats) || {};
+    var nodeCount = st.nodes || Object.keys(g.nodes || {}).length;
     meta.appendChild(el('span', 'crit-graph-phase', g.phase === 'review' ? 'after implementation' : 'plan'));
-    meta.appendChild(el('span', null, (st.nodes || 0) + ' nodes'));
+    meta.appendChild(el('span', null, nodeCount + (nodeCount === 1 ? ' node' : ' nodes')));
     if (st.new) meta.appendChild(el('span', null, st.new + ' net-new'));
     if (st.modified) meta.appendChild(el('span', null, st.modified + ' modified'));
     head.appendChild(meta);
@@ -657,8 +680,9 @@
   // render draws the whole view. Mermaid is initialized with htmlLabels so
   // author labels keep their formatting, and with startOnLoad off because we
   // drive the run ourselves after inserting the source.
-  function render(container, graph, comments) {
+  function render(container, graph, comments, opts) {
     if (!container) return;
+    var keep = opts && opts.keepSelection ? state.selected : null;
     state.graph = graph;
     state.comments = comments || {};
     state.selected = null;
@@ -674,7 +698,10 @@
     renderLegend(container);
 
     var diagramWrap = el('div', 'crit-graph-diagram-wrap');
-    var diagram = el('div', 'mermaid crit-graph-diagram');
+    // No `mermaid` class on purpose: this element is rendered by passing it to
+    // mermaid.run({nodes}) explicitly, and the class would also enrol it in
+    // every bare mermaid.run() the review page makes for markdown diagrams.
+    var diagram = el('div', 'crit-graph-diagram');
     diagram.textContent = buildDiagramSource(graph);
     diagramWrap.appendChild(diagram);
     container.appendChild(diagramWrap);
@@ -685,18 +712,26 @@
 
     if (typeof mermaid === 'undefined') return;
     try {
+      // useMaxWidth MUST stay false. The default scales the SVG down to the
+      // container width, which for a left-to-right call hierarchy means an
+      // 18-node graph rendered as unreadable slivers with no visible labels
+      // (5400px of diagram squeezed into 840px). At natural size the wrapper
+      // scrolls instead, and the expand button below gives the whole picture.
       mermaid.initialize({
         startOnLoad: false,
         theme: (window.crit && window.crit.mermaidTheme && window.crit.mermaidTheme()) || 'default',
-        flowchart: { htmlLabels: true, useMaxWidth: true },
+        flowchart: { htmlLabels: true, useMaxWidth: false },
       });
+      var finish = function () {
+        decorateNodes(diagramWrap);
+        attachExpandButton(diagramWrap);
+        if (keep && (state.graph.nodes || {})[keep]) selectNode(keep);
+      };
       var run = mermaid.run({ nodes: [diagram] });
       if (run && typeof run.then === 'function') {
-        run.then(function () {
-          decorateNodes(diagramWrap);
-        }, function () {});
+        run.then(finish, function () {});
       } else {
-        decorateNodes(diagramWrap);
+        finish();
       }
     } catch (e) {
       diagramWrap.appendChild(el('p', 'crit-graph-error', 'Could not render the diagram.'));
@@ -731,6 +766,7 @@
     setHooks: setHooks,
     setComments: setComments,
     hideHoverCard: hideHoverCard,
+    attachExpandButton: attachExpandButton,
     _state: state,
   };
 

@@ -59,6 +59,173 @@ var edgeOp = regexp.MustCompile(`^(<?)(-{2,}|-\.+-|={2,}|~{3,})([>ox]?)`)
 // mid-statement, and a dot breaks the CSS/DOM keying the viewer does.
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*`)
 
+// logicalLine is one statement as the scanner sees it. Mermaid lets a quoted
+// label and an `@{...}` metadata block span physical lines, so a physical line
+// is not a statement; joining them here is what keeps the rest of the scanner
+// line-based. Line is where the statement starts, which is what a diagnostic
+// should point at.
+//
+// Text has comments already removed, quote-aware — `a["50%% off"]` is a label
+// Mermaid accepts, and a naive strip truncated the statement at the percent
+// signs.
+type logicalLine struct {
+	Text string
+	Line int
+	// InitDirective marks a `%%{init:...}%%` line. It is syntactically a
+	// comment, so it has to be recognized before comments are discarded.
+	InitDirective bool
+	// TrailingComment marks a `%%` that followed real content. Mermaid only
+	// accepts a comment on its own line and rejects the whole diagram
+	// otherwise, so crit must reject it too rather than stripping it and
+	// letting the render fail with nothing to explain it.
+	TrailingComment bool
+}
+
+// lineSplitter is the state a diagram scan carries between bytes: whether it
+// is inside a quoted label or an `@{...}` block (either of which suspends
+// statement boundaries) and where each was opened, so an unterminated one can
+// be reported at its source.
+type lineSplitter struct {
+	out        []logicalLine
+	findings   []Finding
+	buf        strings.Builder
+	start      int
+	line       int
+	inQuote    bool
+	quoteLine  int
+	braceDepth int
+	braceLine  int
+	trailing   bool
+}
+
+// logicalLines splits a diagram into statements, joining physical lines that
+// end inside a quoted label or an unclosed `@{...}` block. It also reports the
+// two structural failures it is the only place able to see: a quote or a brace
+// that is never closed. Both make Mermaid reject the whole diagram, and
+// without a finding here they would instead swallow every following statement
+// and be reported as whatever nonsense the join produced.
+func logicalLines(src string) ([]logicalLine, []Finding) {
+	sp := &lineSplitter{line: 1}
+	for i := 0; i < len(src); i++ {
+		i = sp.step(src, i)
+	}
+	sp.flush()
+	sp.reportUnterminated()
+	return sp.out, sp.findings
+}
+
+// step consumes the byte at i and returns the index to continue from.
+func (sp *lineSplitter) step(src string, i int) int {
+	switch c := src[i]; {
+	case c == '\n':
+		sp.newline()
+		return i
+	case sp.atComment(src, i):
+		return sp.consumeComment(src, i)
+	default:
+		sp.write(c)
+		return i
+	}
+}
+
+// suspended reports whether statement boundaries are currently inactive
+// because a label or metadata block is open.
+func (sp *lineSplitter) suspended() bool {
+	return sp.inQuote || sp.braceDepth > 0
+}
+
+func (sp *lineSplitter) newline() {
+	if sp.suspended() {
+		// Inside a label or a metadata block the newline is not a statement
+		// boundary. It becomes a space: the scanner only needs the structure,
+		// and the diagram Mermaid renders is the author's original text, never
+		// this reconstruction.
+		sp.buf.WriteByte(' ')
+	} else {
+		sp.flush()
+	}
+	sp.line++
+}
+
+func (sp *lineSplitter) atComment(src string, i int) bool {
+	return !sp.suspended() && src[i] == '%' && i+1 < len(src) && src[i+1] == '%'
+}
+
+// consumeComment discards a `%%` comment to the end of its physical line,
+// classifying it first: an init directive has to be recognized before comments
+// are dropped, and a comment following content is an error rather than a
+// comment at all.
+func (sp *lineSplitter) consumeComment(src string, i int) int {
+	blankSoFar := strings.TrimSpace(sp.buf.String()) == ""
+	switch {
+	case blankSoFar && i+2 < len(src) && src[i+2] == '{':
+		sp.out = append(sp.out, logicalLine{Text: strings.TrimSpace(src[i:]), Line: sp.line, InitDirective: true})
+	case !blankSoFar:
+		sp.trailing = true
+	}
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	if i < len(src) {
+		sp.newline()
+	}
+	return i
+}
+
+func (sp *lineSplitter) write(c byte) {
+	if sp.start == 0 && !isSpaceByte(c) {
+		sp.start = sp.line
+	}
+	switch {
+	case c == '"':
+		sp.inQuote = !sp.inQuote
+		if sp.inQuote {
+			sp.quoteLine = sp.line
+		}
+	case !sp.inQuote && c == '{':
+		if sp.braceDepth == 0 {
+			sp.braceLine = sp.line
+		}
+		sp.braceDepth++
+	case !sp.inQuote && c == '}' && sp.braceDepth > 0:
+		sp.braceDepth--
+	}
+	sp.buf.WriteByte(c)
+}
+
+func (sp *lineSplitter) flush() {
+	text := sp.buf.String()
+	if strings.TrimSpace(text) != "" || sp.trailing {
+		sp.out = append(sp.out, logicalLine{Text: text, Line: sp.start, TrailingComment: sp.trailing})
+	}
+	sp.buf.Reset()
+	sp.trailing = false
+	sp.start = 0
+}
+
+func (sp *lineSplitter) reportUnterminated() {
+	if sp.inQuote {
+		sp.findings = append(sp.findings, Finding{
+			Code:    "diagram_unterminated_quote",
+			Line:    sp.quoteLine,
+			Message: "a quoted label opened here is never closed",
+			Fix:     `close the label with a second double quote, e.g. id["Label"]`,
+		})
+	}
+	if sp.braceDepth > 0 {
+		sp.findings = append(sp.findings, Finding{
+			Code:    "diagram_unterminated_quote",
+			Line:    sp.braceLine,
+			Message: "an `@{...}` block opened here is never closed",
+			Fix:     "close it with `}`",
+		})
+	}
+}
+
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r'
+}
+
 // Scan is the result of reading a diagram: the node set, the edge set, the
 // subgraph (module) set, and any syntax diagnostics.
 type Scan struct {
@@ -103,106 +270,22 @@ func ScanDiagram(src string) Scan {
 	seen := map[string]int{}
 	sgSeen := map[string]int{}
 
-	lines := strings.Split(src, "\n")
-	headerDone := false
-	depth := 0
+	lines, structural := logicalLines(src)
+	sc.Findings = append(sc.Findings, structural...)
+	st := &scanState{seen: seen, sgSeen: sgSeen}
 
-	for i, raw := range lines {
-		lineNo := i + 1
-		// The init directive is checked before comment stripping: it is
-		// syntactically a `%%` comment, so stripping first would silently
-		// discard a line that sets the Mermaid theme crit owns.
-		if strings.HasPrefix(strings.TrimSpace(raw), "%%{") {
-			sc.Findings = append(sc.Findings, Finding{
-				Code:    "diagram_forbidden_directive",
-				Line:    lineNo,
-				Message: "`%%{init}%%` is not accepted in a crit graph diagram",
-				Fix:     "crit sets the Mermaid theme to match the review UI; drop the init directive",
-			})
-			continue
-		}
-		line := stripComment(raw)
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		trimmed := strings.TrimSpace(line)
-
-		if !headerDone {
-			dir, ok := parseHeader(trimmed)
-			if !ok {
-				sc.Findings = append(sc.Findings, Finding{
-					Code:    "diagram_missing_header",
-					Line:    lineNo,
-					Message: "the diagram's first statement must be `flowchart <DIR>`, found: " + truncate(trimmed, 60),
-					Fix:     "make the first line `flowchart LR` (or TD, TB, BT, RL)",
-				})
-				headerDone = true // report once, then scan the rest anyway
-			} else {
-				if !validDirections[dir] {
-					sc.Findings = append(sc.Findings, Finding{
-						Code:    "diagram_bad_direction",
-						Line:    lineNo,
-						Message: "unknown flowchart direction " + dir,
-						Fix:     "use one of LR, RL, TD, TB, BT",
-					})
-				}
-				sc.Direction = dir
-				headerDone = true
-				continue
-			}
-		}
-
-		if kw, why, bad := forbiddenStatement(trimmed); bad {
-			sc.Findings = append(sc.Findings, Finding{
-				Code:    "diagram_forbidden_directive",
-				Line:    lineNo,
-				Message: "`" + kw + "` is not accepted in a crit graph diagram",
-				Fix:     why,
-			})
-			continue
-		}
-
-		if lower := strings.ToLower(trimmed); strings.HasPrefix(lower, "subgraph") {
-			depth++
-			if id, label, ok := parseSubgraph(trimmed); ok {
-				if _, dup := sgSeen[id]; !dup {
-					sgSeen[id] = lineNo
-					sc.Subgraphs = append(sc.Subgraphs, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: label != ""})
-				}
-			} else {
-				sc.Findings = append(sc.Findings, Finding{
-					Code:    "diagram_unparsable_line",
-					Line:    lineNo,
-					Message: "could not read a subgraph ID from: " + truncate(trimmed, 60),
-					Fix:     `write it as: subgraph moduleId["Module label"]`,
-				})
-			}
-			continue
-		}
-		if strings.EqualFold(trimmed, "end") {
-			if depth == 0 {
-				sc.Findings = append(sc.Findings, Finding{
-					Code:    "diagram_unbalanced_subgraph",
-					Line:    lineNo,
-					Message: "`end` with no open subgraph",
-					Fix:     "remove this `end`, or add the matching `subgraph` above it",
-				})
-			} else {
-				depth--
-			}
-			continue
-		}
-		if isDirectionStatement(trimmed) {
-			continue
-		}
-
-		sc.scanStatement(trimmed, lineNo, seen)
+	for _, ll := range lines {
+		sc.scanLine(ll, st)
 	}
 
-	if depth > 0 {
+	if st.depth > 0 {
+		lastLine := 1
+		if len(lines) > 0 {
+			lastLine = lines[len(lines)-1].Line
+		}
 		sc.Findings = append(sc.Findings, Finding{
 			Code:    "diagram_unbalanced_subgraph",
-			Line:    len(lines),
+			Line:    lastLine,
 			Message: "subgraph is never closed",
 			Fix:     "add an `end` line for every `subgraph`",
 		})
@@ -210,16 +293,133 @@ func ScanDiagram(src string) Scan {
 	return sc
 }
 
-// scanStatement tokenizes one node/edge statement into groups of IDs separated
-// by edge operators, then joins consecutive groups into edges (the cross
-// product, so `a & b --> c` yields two edges).
-//
-// Nodes and edges are buffered and committed only if the whole statement
-// scanned cleanly. A statement crit cannot read has already produced a precise
-// diagnostic, and committing the fragment it managed to read before bailing
-// would add a second finding naming a node that does not exist — `mint-token`
-// would report both "unparsable" and "node `mint` has no metadata", sending an
-// author to fix a phantom.
+// scanState is what a diagram scan carries across statements.
+type scanState struct {
+	seen       map[string]int
+	sgSeen     map[string]int
+	headerDone bool
+	depth      int
+}
+
+// scanLine dispatches one logical line to whichever construct it is.
+func (sc *Scan) scanLine(ll logicalLine, st *scanState) {
+	lineNo := ll.Line
+	if lineNo == 0 {
+		lineNo = 1
+	}
+
+	if ll.InitDirective {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_forbidden_directive",
+			Line:    lineNo,
+			Message: "`%%{init}%%` is not accepted in a crit graph diagram",
+			Fix:     "crit sets the Mermaid theme to match the review UI; drop the init directive",
+		})
+		return
+	}
+	if ll.TrailingComment {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_trailing_comment",
+			Line:    lineNo,
+			Message: "a `%%` comment follows content on this line",
+			Fix:     "Mermaid only accepts a comment on its own line — move it to the line above",
+		})
+		return
+	}
+
+	trimmed := strings.TrimSpace(ll.Text)
+	if trimmed == "" {
+		return
+	}
+
+	if !st.headerDone {
+		if sc.readHeader(trimmed, lineNo, st) {
+			return
+		}
+	}
+
+	if kw, why, bad := forbiddenStatement(trimmed); bad {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_forbidden_directive",
+			Line:    lineNo,
+			Message: "`" + kw + "` is not accepted in a crit graph diagram",
+			Fix:     why,
+		})
+		return
+	}
+
+	switch {
+	case strings.HasPrefix(strings.ToLower(trimmed), "subgraph"):
+		sc.readSubgraph(trimmed, lineNo, st)
+	case strings.EqualFold(trimmed, "end"):
+		sc.readEnd(lineNo, st)
+	case isDirectionStatement(trimmed):
+		// A `direction` statement carries no nodes.
+	default:
+		sc.scanStatement(trimmed, lineNo, st.seen)
+	}
+}
+
+// readHeader consumes the `flowchart <DIR>` statement. It returns true when
+// the line was the header and needs no further handling.
+func (sc *Scan) readHeader(trimmed string, lineNo int, st *scanState) bool {
+	dir, ok := parseHeader(trimmed)
+	if !ok {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_missing_header",
+			Line:    lineNo,
+			Message: "the diagram's first statement must be `flowchart <DIR>`, found: " + truncate(trimmed, 60),
+			Fix:     "make the first line `flowchart LR` (or TD, TB, BT, RL)",
+		})
+		// Report once, then scan the rest of the diagram anyway.
+		st.headerDone = true
+		return false
+	}
+	if !validDirections[dir] {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_bad_direction",
+			Line:    lineNo,
+			Message: "unknown flowchart direction " + dir,
+			Fix:     "use one of LR, RL, TD, TB, BT",
+		})
+	}
+	sc.Direction = dir
+	st.headerDone = true
+	return true
+}
+
+func (sc *Scan) readSubgraph(trimmed string, lineNo int, st *scanState) {
+	st.depth++
+	id, label, ok := parseSubgraph(trimmed)
+	if !ok {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_unparsable_line",
+			Line:    lineNo,
+			Message: "could not read a subgraph ID from: " + truncate(trimmed, 60),
+			Fix:     `write it as: subgraph moduleId["Module label"]`,
+		})
+		return
+	}
+	if _, dup := st.sgSeen[id]; dup {
+		return
+	}
+	st.sgSeen[id] = lineNo
+	sc.Subgraphs = append(sc.Subgraphs, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: label != ""})
+}
+
+func (sc *Scan) readEnd(lineNo int, st *scanState) {
+	if st.depth == 0 {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "diagram_unbalanced_subgraph",
+			Line:    lineNo,
+			Message: "`end` with no open subgraph",
+			Fix:     "remove this `end`, or add the matching `subgraph` above it",
+		})
+		return
+	}
+	st.depth--
+}
+
 // statementScan is the in-progress read of one statement. Nodes and edges
 // accumulate here and are committed to the Scan only if the whole statement
 // scans cleanly — see scanStatement.
@@ -283,13 +483,66 @@ func (sc *Scan) readToken(line string, pos, lineNo int, st *statementScan) (next
 }
 
 // readNode consumes an identifier and any shape/label that follows it.
+//
+// It also handles the two Mermaid 11 syntaxes that attach to an identifier
+// with `@`. Both are accepted rather than rejected because Mermaid accepts
+// them and an author working from current docs will write them:
+//
+//   - `a@{ shape: rect, label: "x" }` — node metadata. Only consumed, never
+//     interpreted: crit takes every display fact from its own `nodes` map, so
+//     the block's contents are irrelevant to it.
+//   - `a e1@--> b` — an edge ID. `e1` names the edge, not a node, so it must
+//     not enter the node set; recording it would produce a node the author
+//     never declared and then report it as missing metadata.
 func (sc *Scan) readNode(line string, pos, lineNo int, id string, st *statementScan) (next int, ok bool) {
 	pos += len(id)
 	label := ""
 	hasShape := false
-	if end, lbl, has := consumeShape(line, pos); has {
+
+	if pos < len(line) && line[pos] == '@' {
+		rest := line[pos+1:]
+		switch {
+		case strings.HasPrefix(rest, "{"):
+			end, consumed := consumeBraceBlock(line, pos+1)
+			if !consumed {
+				sc.Findings = append(sc.Findings, Finding{
+					Code:    "diagram_unterminated_quote",
+					Line:    lineNo,
+					Node:    id,
+					Message: "an `@{...}` block after `" + id + "` is never closed",
+					Fix:     "close it with `}`",
+				})
+				return pos, false
+			}
+			pos = end
+			hasShape = true
+		case edgeOp.MatchString(rest):
+			// `id@` immediately before an edge operator is an edge ID.
+			return pos + 1, true
+		default:
+			sc.Findings = append(sc.Findings, Finding{
+				Code:    "diagram_unparsable_line",
+				Line:    lineNo,
+				Node:    id,
+				Message: "unexpected `@` after `" + id + "`",
+				Fix:     "`@` introduces a Mermaid metadata block (`id@{ ... }`) or an edge ID (`id@-->`); remove it otherwise",
+			})
+			return pos, false
+		}
+	}
+
+	if end, lbl, quoted, has := consumeShapeQuoted(line, pos); has {
 		label, hasShape = lbl, true
 		pos = end
+		if !quoted && strings.ContainsAny(lbl, "[](){}") {
+			sc.Findings = append(sc.Findings, Finding{
+				Code:    "diagram_unquoted_label",
+				Line:    lineNo,
+				Node:    id,
+				Message: "the label on `" + id + "` contains brackets but is not quoted",
+				Fix:     `wrap it in double quotes: ` + id + `["` + lbl + `"]` + " — Mermaid rejects an unquoted label containing brackets",
+			})
+		}
 	} else if end > pos {
 		sc.Findings = append(sc.Findings, Finding{
 			Code:    "diagram_unparsable_line",
@@ -305,7 +558,7 @@ func (sc *Scan) readNode(line string, pos, lineNo int, id string, st *statementS
 			Code:    "node_reserved_id",
 			Line:    lineNo,
 			Node:    id,
-			Message: "`" + id + "` is a Mermaid reserved word and cannot be a node ID",
+			Message: "`" + id + "` is a Mermaid reserved word and cannot be used as a node ID in every position",
 			Fix:     "rename the node in both the diagram and `nodes` (e.g. `" + id + "Fn`); keep the old text as the node's label if you want it displayed",
 		})
 	}
@@ -354,9 +607,18 @@ var shapeOpeners = []string{"([", "[[", "[(", "((", "[/", `[\`, "{{", "[", "(", 
 // index just past the shape and the label text with its quoting removed.
 // ok is false when no shape starts here; a returned end > pos with ok false
 // means a shape started but never closed.
+//
+// quoted reports whether the label was wrapped in double quotes, which the
+// caller needs because Mermaid rejects an UNQUOTED label containing bracket
+// characters (`a[fn(x)]`) while accepting the quoted form.
 func consumeShape(line string, pos int) (end int, label string, ok bool) {
+	end, label, _, ok = consumeShapeQuoted(line, pos)
+	return end, label, ok
+}
+
+func consumeShapeQuoted(line string, pos int) (end int, label string, quoted, ok bool) {
 	if pos >= len(line) {
-		return pos, "", false
+		return pos, "", false, false
 	}
 	matched := ""
 	for _, op := range shapeOpeners {
@@ -366,15 +628,16 @@ func consumeShape(line string, pos int) (end int, label string, ok bool) {
 		}
 	}
 	if matched == "" {
-		return pos, "", false
+		return pos, "", false, false
 	}
 	// `>label]` is the one asymmetric shape: it opens with a single `>` and
 	// closes on `]`, so depth counting does not apply.
 	if matched == ">" {
 		if idx := strings.IndexByte(line[pos:], ']'); idx >= 0 {
-			return pos + idx + 1, unquoteLabel(line[pos+1 : pos+idx]), true
+			raw := line[pos+1 : pos+idx]
+			return pos + idx + 1, unquoteLabel(raw), isQuoted(raw), true
 		}
-		return pos + 1, "", false
+		return pos + 1, "", false, false
 	}
 
 	depth := 0
@@ -396,11 +659,48 @@ func consumeShape(line string, pos int) (end int, label string, ok bool) {
 		case ']', ')', '}':
 			depth--
 			if depth == 0 {
-				return i + 1, unquoteLabel(trimShapeBrackets(line[start : i+1])), true
+				raw := trimShapeBrackets(line[start : i+1])
+				return i + 1, unquoteLabel(raw), isQuoted(raw), true
 			}
 		}
 	}
-	return start + 1, "", false
+	return start + 1, "", false, false
+}
+
+func isQuoted(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"'
+}
+
+// consumeBraceBlock steps over a balanced `{...}` block, respecting quotes.
+// ok is false when the block never closes.
+func consumeBraceBlock(line string, pos int) (end int, ok bool) {
+	if pos >= len(line) || line[pos] != '{' {
+		return pos, false
+	}
+	depth := 0
+	inQuote := false
+	for i := pos; i < len(line); i++ {
+		c := line[i]
+		if inQuote {
+			if c == '"' {
+				inQuote = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inQuote = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i + 1, true
+			}
+		}
+	}
+	return pos, false
 }
 
 // skipEdgeLabel steps over a `|label|` segment following an edge operator.

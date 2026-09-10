@@ -6932,7 +6932,11 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   background: var(--crit-editor-bg-card);
 }
 
-.crit-graph-diagram svg { max-width: 100%; height: auto; }
+/* No max-width here on purpose. It fought the useMaxWidth:false that
+   crit-graph-view.js sets, re-squeezing a wide hierarchy back into the
+   container and undoing the fix. The SVG renders at its natural size and
+   .crit-graph-diagram-wrap scrolls. */
+.crit-graph-diagram svg { height: auto; }
 
 .crit-graph-node { cursor: pointer; }
 .crit-graph-node:focus { outline: none; }
@@ -7253,4 +7257,26 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   margin: 6px 0 0 12px;
   padding-left: 8px;
   border-left: 2px solid var(--crit-border-strong);
+}
+
+/* Expand button on the graph diagram, mirroring .mermaid-expand on markdown
+   diagrams. Always visible rather than hover-revealed: a wide hierarchy needs
+   it immediately, and the diagram itself is the hover target for node cards. */
+.crit-graph-expand {
+  position: sticky;
+  left: 0;
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--crit-border-strong);
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg-secondary);
+  cursor: pointer;
+}
+
+.crit-graph-expand:hover {
+  background: var(--crit-editor-bg-hover);
+  color: var(--crit-editor-fg);
 }

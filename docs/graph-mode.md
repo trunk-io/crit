@@ -217,3 +217,24 @@ consequences are worth knowing:
   determined against the vendored Mermaid, not guessed.
 - **Past ~40 nodes crit warns.** It is a call hierarchy, not an AST; the
   warning is the constraint made mechanical rather than left in prose.
+- **A `%%` comment must be on its own line.** Mermaid rejects a diagram where
+  one follows content, so crit rejects it too rather than stripping it and
+  letting the render fail with nothing to explain it. `%%` inside a quoted
+  label is fine.
+- **Newer Mermaid syntax is accepted**: a quoted label may span lines, `a@{
+  shape: rect }` node metadata is consumed (crit takes every display fact from
+  its own `nodes` map), and `a e1@--> b` edge IDs name the edge rather than a
+  node.
+- **An unquoted label containing brackets is rejected** (`a[fn(x)]`), because
+  Mermaid rejects it while accepting the quoted form (`a["fn(x)"]`).
+- The diagram renders at **natural size** and scrolls, rather than being
+  scaled to fit — a scaled left-to-right hierarchy becomes unreadable fast.
+  The **Expand** button opens it fullscreen with pan and zoom.
+
+The scanner is kept honest by a differential test against the vendored
+Mermaid: for the corpus in `internal/graph`'s tests there are **no cases that
+crit accepts and Mermaid then refuses to render**, which is the failure mode
+worth engineering against — a graph that validates and then shows an error is
+indistinguishable from a crit bug. The reverse direction (crit stricter than
+Mermaid) is deliberate and limited to the node-ID contract, the styling
+directives crit owns, and the reserved words above.
