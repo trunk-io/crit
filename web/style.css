@@ -4,6 +4,23 @@
 /* Layout variables */
 :root {
   --content-width: 1040px;
+
+  /* Call-hierarchy graph badge palette (see the graph-view section below).
+     Ten mid-tone hues, defined once: every derived surface is a color-mix
+     over `transparent`, so a chip composites onto whatever background the
+     active theme puts behind it and needs no light/dark variant. Mid-tone is
+     the constraint — each hue has to stay legible as text on both the light
+     and the dark editor surface. */
+  --crit-graph-red:    #d1656b;
+  --crit-graph-orange: #cc7a3d;
+  --crit-graph-amber:  #b8912f;
+  --crit-graph-green:  #4f9d5c;
+  --crit-graph-teal:   #3f9a93;
+  --crit-graph-blue:   #4b82cf;
+  --crit-graph-indigo: #6b74d6;
+  --crit-graph-violet: #9166cc;
+  --crit-graph-pink:   #c2609b;
+  --crit-graph-slate:  #77839c;
 }
 [data-width="compact"] { --content-width: 840px; }
 [data-width="default"] { --content-width: 1040px; }
@@ -6806,4 +6823,399 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   .crit-story-toc__item,
   .crit-story-next { min-height: 44px; }
   .crit-story-chapter__mark { min-height: 32px; }
+}
+
+/* ===== Call-hierarchy graph view (crit graph) =====
+   Node fill/stroke are driven by classes crit-graph-view.js appends to the
+   diagram source as Mermaid `class` statements, never by classDef — that is
+   what keeps the colors here, in the theme, instead of inlined into the SVG.
+   The badge palette lives in the :root block at the top of this file. */
+.crit-graph-view {
+  padding: 16px 20px 320px;
+  max-width: 100%;
+}
+
+.crit-graph-header { margin-bottom: 12px; }
+
+.crit-graph-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  color: var(--crit-editor-fg);
+}
+
+.crit-graph-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+}
+
+.crit-graph-phase {
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--crit-border);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.crit-graph-summary {
+  margin: 8px 0 0;
+  max-width: 72ch;
+  font-size: 13px;
+  color: var(--crit-editor-fg-secondary);
+}
+
+/* ---- Legend ---- */
+.crit-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 8px 10px;
+  margin: 12px 0;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-card);
+  font-size: 12px;
+}
+
+.crit-graph-legend-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.crit-graph-legend-label {
+  color: var(--crit-editor-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+}
+
+.crit-graph-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+
+.crit-graph-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+  border: 1px solid color-mix(in srgb, var(--crit-editor-fg) 20%, transparent);
+}
+
+/* ---- Notices: warnings the validator allowed through, and cross-phase drift ---- */
+.crit-graph-notice {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--crit-border);
+  font-size: 12px;
+}
+
+.crit-graph-notice h4 { margin: 0 0 6px; font-size: 12px; }
+.crit-graph-notice ul { margin: 0; padding-left: 18px; }
+.crit-graph-notice li { margin: 2px 0; }
+.crit-graph-notice summary { cursor: pointer; color: var(--crit-editor-fg-secondary); }
+
+.crit-graph-drift {
+  border-color: color-mix(in srgb, var(--crit-graph-amber) 45%, transparent);
+  background: color-mix(in srgb, var(--crit-graph-amber) 8%, transparent);
+}
+
+.crit-drift-added   { color: var(--crit-graph-violet); }
+.crit-drift-removed { color: var(--crit-graph-red); }
+.crit-drift-changed { color: var(--crit-graph-blue); }
+
+/* ---- The diagram ---- */
+.crit-graph-diagram-wrap {
+  position: relative;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-card);
+}
+
+.crit-graph-diagram svg { max-width: 100%; height: auto; }
+
+.crit-graph-node { cursor: pointer; }
+.crit-graph-node:focus { outline: none; }
+.crit-graph-node:focus-visible > rect,
+.crit-graph-node:focus-visible > polygon,
+.crit-graph-node:focus-visible > circle,
+.crit-graph-node:focus-visible > path {
+  stroke: var(--crit-brand) !important;
+  stroke-width: 3px !important;
+}
+
+/* Status fills. The selector lists every shape Mermaid may emit for a node,
+   because the shape is the author's choice and the color is not. */
+.critNodeExisting > rect, .critNodeExisting > polygon,
+.critNodeExisting > circle, .critNodeExisting > ellipse, .critNodeExisting > path {
+  fill: color-mix(in srgb, var(--crit-graph-slate) 18%, transparent) !important;
+  stroke: var(--crit-graph-slate) !important;
+}
+
+.critNodeNew > rect, .critNodeNew > polygon,
+.critNodeNew > circle, .critNodeNew > ellipse, .critNodeNew > path {
+  fill: color-mix(in srgb, var(--crit-graph-green) 20%, transparent) !important;
+  stroke: var(--crit-graph-green) !important;
+  stroke-width: 2px !important;
+}
+
+.critNodeModified > rect, .critNodeModified > polygon,
+.critNodeModified > circle, .critNodeModified > ellipse, .critNodeModified > path {
+  fill: color-mix(in srgb, var(--crit-graph-blue) 18%, transparent) !important;
+  stroke: var(--crit-graph-blue) !important;
+}
+
+.critNodeExternal > rect, .critNodeExternal > polygon,
+.critNodeExternal > circle, .critNodeExternal > ellipse, .critNodeExternal > path {
+  fill: transparent !important;
+  stroke: var(--crit-graph-slate) !important;
+  stroke-dasharray: 4 3 !important;
+}
+
+/* ---- Node labels ----
+   Mermaid picks its label color to suit the fills IT would have drawn, but the
+   fills here are ours, so its choice is wrong by construction — a dark-theme
+   Mermaid renders #ccc text onto our light status tints and the label vanishes.
+   Forcing the label from our own token is what makes the node readable under
+   either theme, and !important is required because Mermaid's injected rules are
+   ID-scoped (`#mermaid-<runId> .nodeLabel`) and outrank any class selector. */
+.crit-graph-diagram .nodeLabel,
+.crit-graph-diagram .nodeLabel p,
+.crit-graph-diagram .node .label,
+.crit-graph-diagram .cluster-label,
+.crit-graph-diagram .cluster-label p {
+  color: var(--crit-editor-fg) !important;
+  fill: var(--crit-editor-fg) !important;
+}
+
+.crit-graph-diagram .edgeLabel,
+.crit-graph-diagram .edgeLabel p {
+  color: var(--crit-editor-fg-secondary) !important;
+  fill: var(--crit-editor-fg-secondary) !important;
+  background: transparent !important;
+}
+
+/* ---- Badge markers drawn inside each node's own <g> ----
+   These are <rect>s inside g.node, so Mermaid's ID-scoped
+   `#mermaid-<runId> .node rect { fill: … }` matches them and wins on
+   specificity — every marker came out node-colored before the !important.
+   Same reason the status fills above carry it. */
+.crit-graph-marker {
+  stroke: color-mix(in srgb, var(--crit-editor-fg) 25%, transparent) !important;
+  stroke-width: 0.5px !important;
+}
+
+.crit-marker-red    { fill: var(--crit-graph-red) !important; }
+.crit-marker-orange { fill: var(--crit-graph-orange) !important; }
+.crit-marker-amber  { fill: var(--crit-graph-amber) !important; }
+.crit-marker-green  { fill: var(--crit-graph-green) !important; }
+.crit-marker-teal   { fill: var(--crit-graph-teal) !important; }
+.crit-marker-blue   { fill: var(--crit-graph-blue) !important; }
+.crit-marker-indigo { fill: var(--crit-graph-indigo) !important; }
+.crit-marker-violet { fill: var(--crit-graph-violet) !important; }
+.crit-marker-pink   { fill: var(--crit-graph-pink) !important; }
+.crit-marker-slate  { fill: var(--crit-graph-slate) !important; }
+
+.crit-graph-legend-item .crit-marker-red    { background: var(--crit-graph-red); }
+.crit-graph-legend-item .crit-marker-orange { background: var(--crit-graph-orange); }
+.crit-graph-legend-item .crit-marker-amber  { background: var(--crit-graph-amber); }
+.crit-graph-legend-item .crit-marker-green  { background: var(--crit-graph-green); }
+.crit-graph-legend-item .crit-marker-teal   { background: var(--crit-graph-teal); }
+.crit-graph-legend-item .crit-marker-blue   { background: var(--crit-graph-blue); }
+.crit-graph-legend-item .crit-marker-indigo { background: var(--crit-graph-indigo); }
+.crit-graph-legend-item .crit-marker-violet { background: var(--crit-graph-violet); }
+.crit-graph-legend-item .crit-marker-pink   { background: var(--crit-graph-pink); }
+.crit-graph-legend-item .crit-marker-slate  { background: var(--crit-graph-slate); }
+
+.crit-graph-status-existing { background: var(--crit-graph-slate); }
+.crit-graph-status-new      { background: var(--crit-graph-green); }
+.crit-graph-status-modified { background: var(--crit-graph-blue); }
+.crit-graph-status-external { background: transparent; border-style: dashed; }
+
+/* ---- Comment count badge on a node ---- */
+.crit-graph-comment-badge circle {
+  fill: var(--crit-editor-bg-elevated) !important;
+  stroke: var(--crit-border-strong) !important;
+}
+
+.crit-graph-comment-badge[data-unresolved="true"] circle {
+  fill: var(--crit-brand-cta) !important;
+  stroke: var(--crit-brand) !important;
+}
+
+.crit-graph-comment-badge text {
+  fill: var(--crit-editor-fg) !important;
+  font-size: 9px;
+  font-family: inherit;
+}
+
+/* ---- Node card: the hover tooltip and the detail panel body ---- */
+.crit-graph-card {
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  background: var(--crit-editor-bg-elevated);
+  padding: 10px 12px;
+}
+
+.crit-graph-hovercard {
+  position: fixed;
+  z-index: 1200;
+  max-width: min(520px, 90vw);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.crit-graph-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.crit-graph-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--crit-editor-fg);
+}
+
+.crit-graph-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--crit-editor-fg) 25%, transparent);
+  color: var(--crit-fg-on-brand);
+}
+
+.crit-graph-signature {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--crit-editor-code-bg);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.crit-graph-location {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.crit-graph-path {
+  font-family: var(--crit-font-mono, monospace);
+  color: var(--crit-editor-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.crit-graph-copy {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--crit-border-strong);
+  background: var(--crit-editor-bg-card);
+  color: var(--crit-editor-fg-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.crit-graph-copy:hover { background: var(--crit-editor-bg-hover); color: var(--crit-editor-fg); }
+.crit-graph-copy.copied { border-color: var(--crit-graph-green); color: var(--crit-graph-green); }
+
+.crit-graph-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+
+.crit-graph-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid;
+}
+
+.crit-badge-red    { color: var(--crit-graph-red);    border-color: color-mix(in srgb, var(--crit-graph-red) 55%, transparent);    background: color-mix(in srgb, var(--crit-graph-red) 12%, transparent); }
+.crit-badge-orange { color: var(--crit-graph-orange); border-color: color-mix(in srgb, var(--crit-graph-orange) 55%, transparent); background: color-mix(in srgb, var(--crit-graph-orange) 12%, transparent); }
+.crit-badge-amber  { color: var(--crit-graph-amber);  border-color: color-mix(in srgb, var(--crit-graph-amber) 55%, transparent);  background: color-mix(in srgb, var(--crit-graph-amber) 12%, transparent); }
+.crit-badge-green  { color: var(--crit-graph-green);  border-color: color-mix(in srgb, var(--crit-graph-green) 55%, transparent);  background: color-mix(in srgb, var(--crit-graph-green) 12%, transparent); }
+.crit-badge-teal   { color: var(--crit-graph-teal);   border-color: color-mix(in srgb, var(--crit-graph-teal) 55%, transparent);   background: color-mix(in srgb, var(--crit-graph-teal) 12%, transparent); }
+.crit-badge-blue   { color: var(--crit-graph-blue);   border-color: color-mix(in srgb, var(--crit-graph-blue) 55%, transparent);   background: color-mix(in srgb, var(--crit-graph-blue) 12%, transparent); }
+.crit-badge-indigo { color: var(--crit-graph-indigo); border-color: color-mix(in srgb, var(--crit-graph-indigo) 55%, transparent); background: color-mix(in srgb, var(--crit-graph-indigo) 12%, transparent); }
+.crit-badge-violet { color: var(--crit-graph-violet); border-color: color-mix(in srgb, var(--crit-graph-violet) 55%, transparent); background: color-mix(in srgb, var(--crit-graph-violet) 12%, transparent); }
+.crit-badge-pink   { color: var(--crit-graph-pink);   border-color: color-mix(in srgb, var(--crit-graph-pink) 55%, transparent);   background: color-mix(in srgb, var(--crit-graph-pink) 12%, transparent); }
+.crit-badge-slate  { color: var(--crit-graph-slate);  border-color: color-mix(in srgb, var(--crit-graph-slate) 55%, transparent);  background: color-mix(in srgb, var(--crit-graph-slate) 12%, transparent); }
+
+.crit-graph-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--crit-editor-fg-secondary);
+}
+
+/* ---- Node detail panel ---- */
+.crit-graph-panel {
+  display: none;
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-top: 1px solid var(--crit-border-strong);
+  border-left: 1px solid var(--crit-border-strong);
+  border-radius: 8px 0 0 0;
+  background: var(--crit-editor-bg-card);
+  box-shadow: -4px -4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 900;
+}
+
+.crit-graph-panel.open { display: block; }
+
+.crit-graph-panel-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--crit-editor-fg-muted);
+}
+
+.crit-graph-thread { margin-top: 12px; }
+.crit-graph-thread-title { margin: 0 0 6px; font-size: 12px; color: var(--crit-editor-fg-muted); }
+
+.crit-graph-comment {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-left: 2px solid var(--crit-border-comment);
+  background: var(--crit-editor-comment-bg);
+  font-size: 12px;
+}
+
+.crit-graph-comment-author { font-weight: 600; margin-bottom: 2px; }
+
+.crit-graph-comment-form { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+
+.crit-graph-comment-form textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--crit-border-strong);
+  border-radius: 4px;
+  background: var(--crit-editor-bg);
+  color: var(--crit-editor-fg);
+  font: inherit;
+  font-size: 12px;
+}
+
+.crit-graph-comment-form button { align-self: flex-end; }
+
+.crit-graph-empty,
+.crit-graph-error {
+  padding: 24px;
+  text-align: center;
+  color: var(--crit-editor-fg-muted);
 }

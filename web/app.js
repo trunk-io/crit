@@ -8226,6 +8226,22 @@
         console.error('story-updated parse:', err);
       }
       },
+      'graph-updated': function(data) {
+      try {
+        // Envelope: {type, filename, content} where content is JSON {graph:...}.
+        const envelope = data || {};
+        const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
+        graphData = (inner && 'graph' in inner) ? inner.graph : null;
+        // Comments are not in the event payload (a re-ingest does not change
+        // them), so refetch rather than dropping the threads on the floor.
+        loadGraph();
+        // A fresh ingest surfaces the view: the author just asked for it.
+        if (graphData) setGraphVisible(true);
+        else setGraphVisible(false);
+      } catch (err) {
+        console.error('graph-updated parse:', err);
+      }
+      },
       'server-shutdown': function() {
       conn.close();
       showDisconnected();
@@ -8458,6 +8474,11 @@
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'default' : 'dark';
   }
 
+  // Exposed for crit-graph-view.js, which renders its own mermaid instance and
+  // must resolve the same theme rather than duplicating the media-query logic.
+  window.crit = window.crit || {};
+  window.crit.mermaidTheme = getMermaidTheme;
+
   function renderMermaidBlocks() {
     // Any document rebuild invalidates the detached overlay clone (and its
     // theme) — close the overlay rather than show a stale diagram.
@@ -8475,6 +8496,102 @@
     });
     try { mermaid.run(); } catch {}
     decorateMermaidBlocks();
+  }
+
+  // ===== Call-hierarchy graph view =====
+  // A standalone view rather than a diff overlay: a graph describes the shape
+  // of a change, not its hunks, and it exists in the planning phase when there
+  // is no diff at all. crit-graph-view.js owns all of the rendering; this
+  // block owns only fetch, toggle, and transport.
+  let graphData = null;
+  let graphComments = {};
+  let graphVisible = false;
+
+  function graphViewAvailable() {
+    return !!(graphData && graphData.diagram);
+  }
+
+  async function loadGraph() {
+    try {
+      const res = await fetch('/api/graph');
+      if (res.status === 204) {
+        graphData = null;
+        graphComments = {};
+      } else if (res.ok) {
+        const payload = await res.json();
+        graphData = payload.graph || null;
+        graphComments = payload.comments || {};
+      }
+    } catch {
+      // A missing graph is the common case, not an error worth surfacing.
+    }
+    updateGraphViewToggle();
+    if (graphVisible) renderGraphView();
+  }
+
+  function updateGraphViewToggle() {
+    const toggle = document.getElementById('graphViewToggle');
+    if (!toggle) return;
+    toggle.style.display = graphViewAvailable() ? '' : 'none';
+    toggle.querySelectorAll('.toggle-btn').forEach(function (btn) {
+      const active = graphVisible ? btn.dataset.graphView === 'graph' : btn.dataset.graphView === 'files';
+      btn.classList.toggle('active', active);
+    });
+  }
+
+  function setGraphVisible(next) {
+    graphVisible = !!next && graphViewAvailable();
+    const root = document.getElementById('graphRoot');
+    const filesRoot = document.getElementById('filesContainer');
+    const storyRoot = document.getElementById('storyRoot');
+    if (root) root.hidden = !graphVisible;
+    // The graph replaces whichever content view is up, so both are hidden
+    // together — the toggle returns to whichever was showing before.
+    if (filesRoot) filesRoot.style.display = graphVisible ? 'none' : '';
+    if (storyRoot && graphVisible) storyRoot.style.display = 'none';
+    else if (storyRoot) storyRoot.style.display = '';
+    if (graphVisible) renderGraphView();
+    else if (window.crit && window.crit.graphView) window.crit.graphView.hideHoverCard();
+    updateGraphViewToggle();
+  }
+
+  function renderGraphView() {
+    const root = document.getElementById('graphRoot');
+    if (!root || !window.crit || !window.crit.graphView) return;
+    window.crit.graphView.setHooks({
+      postComment: postGraphComment,
+      renderCommentCard: null,
+    });
+    window.crit.graphView.render(root, graphData, graphComments);
+  }
+
+  async function postGraphComment(nodeId, body) {
+    const res = await fetch('/api/graph-comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ node_id: nodeId, body: body, author: configAuthor }),
+    });
+    if (!res.ok) {
+      showMiniToast('Could not save the comment.');
+      throw new Error('graph comment failed');
+    }
+    const comment = await res.json();
+    (graphComments[nodeId] = graphComments[nodeId] || []).push(comment);
+    window.crit.graphView.setComments(graphComments);
+    // Re-render so the node's comment count badge updates too.
+    renderGraphView();
+    window.crit.graphView.selectNode(nodeId);
+    return comment;
+  }
+
+  function initGraphViewToggle() {
+    const toggle = document.getElementById('graphViewToggle');
+    if (!toggle) return;
+    toggle.addEventListener('click', function (e) {
+      const btn = e.target.closest('.toggle-btn');
+      if (!btn || !toggle.contains(btn)) return;
+      setGraphVisible(btn.dataset.graphView === 'graph');
+    });
   }
 
   // ===== Mermaid fullscreen overlay (GitHub-style pan/zoom) =====
@@ -11952,6 +12069,13 @@
     }
     return false;
   }
+
+  // Graph-view chrome. Fetching the graph is fire-and-forget: a review with no
+  // graph is the common case, and the toggle simply stays hidden.
+  (function wireGraphChrome() {
+    initGraphViewToggle();
+    loadGraph();
+  })();
 
   // Rail toggle + scrim wiring (safe when elements absent).
   (function wireStoryChrome() {

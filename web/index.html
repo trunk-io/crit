@@ -102,6 +102,10 @@
       <button class="toggle-btn active" data-story-view="story" title="Show story view">Story</button>
       <button class="toggle-btn" data-story-view="diff" title="Show diff view">Diff</button>
     </div>
+    <div class="scope-toggle crit-graph-view-toggle" id="graphViewToggle" style="display:none">
+      <button class="toggle-btn" data-graph-view="graph" title="Show the call hierarchy">Graph</button>
+      <button class="toggle-btn active" data-graph-view="files" title="Show the files">Files</button>
+    </div>
     <button class="btn btn-sm" id="diffToggle" style="display:none">Toggle Diff</button>
     <div class="diff-mode-toggle" id="diffModeToggle" style="display:none">
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
@@ -224,6 +228,9 @@
         <div class="crit-story-pane__inner" id="storyPaneInner"></div>
       </main>
     </div>
+    <!-- Call-hierarchy view root. Hidden unless `crit graph` has ingested a
+         graph; populated entirely by crit-graph-view.js. -->
+    <div id="graphRoot" class="crit-graph-view" hidden></div>
   </div>
   <div class="sidebar-resize-handle" id="commentsPanelResizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Resize comments panel" aria-valuenow="50" aria-valuemin="0" aria-valuemax="100"></div>
   <div class="comments-panel comments-panel-hidden" id="commentsPanel">
@@ -535,6 +542,7 @@
       var tr = document.createElement('script'); tr.src = 'crit-tab-ready.js'; tr.async = false; document.body.appendChild(tr);
       // Review-toolbar comment-cleanup dialog (window.crit.commentCleanup). Must load before app.js.
       var cu = document.createElement('script'); cu.src = 'crit-comment-cleanup.js'; cu.async = false; document.body.appendChild(cu);
+      var gv = document.createElement('script'); gv.src = 'crit-graph-view.js'; gv.async = false; document.body.appendChild(gv);
       var a = document.createElement('script'); a.src = 'app.js'; a.async = false; document.body.appendChild(a);
     }
   })();
