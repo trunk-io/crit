@@ -156,6 +156,7 @@ var integrationMap = map[string][]integration{
 		{source: "integrations/claude-code/skills/crit/SKILL.md", dest: ".claude/skills/crit/SKILL.md", hint: "Run /crit in Claude Code to start a review loop"},
 		{source: "integrations/claude-code/skills/crit-cli/SKILL.md", dest: ".claude/skills/crit-cli/SKILL.md", hint: "The crit-cli skill is available to Claude Code agents when needed"},
 		{source: "integrations/claude-code/skills/crit-story/SKILL.md", dest: ".claude/skills/crit-story/SKILL.md", hint: "Run /crit-story in Claude Code to author a story and continue the review loop"},
+		{source: "integrations/claude-code/skills/crit-graph/SKILL.md", dest: ".claude/skills/crit-graph/SKILL.md", hint: "Run /crit-graph in Claude Code to author a call-hierarchy graph and continue the review loop"},
 	},
 	"cursor": {
 		{source: "integrations/cursor/skills/crit/SKILL.md", dest: ".cursor/skills/crit/SKILL.md", hint: "Run /crit in Cursor to start a review loop"},

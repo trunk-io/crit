@@ -2,6 +2,7 @@ package vcs
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,14 +16,10 @@ func commitFile(t *testing.T, dir, name, content, msg string) string {
 }
 
 func trimSHA(out string) string {
-	s := ""
-	for _, r := range out {
-		if r == '\n' || r == '\r' {
-			break
-		}
-		s += string(r)
+	if i := strings.IndexAny(out, "\r\n"); i >= 0 {
+		return out[:i]
 	}
-	return s
+	return out
 }
 
 func pathsOf(changes []FileChange) []string {

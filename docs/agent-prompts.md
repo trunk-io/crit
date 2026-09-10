@@ -263,5 +263,6 @@ Custom templates choose what to include. Omit `{{.comments_unresolved_json}}` / 
 
 - [Configuration](../README.md#configuration) — `crit config --generate`, global vs project keys
 - [Story mode](story-mode.md) — feature overview, manual story authoring, and custom story prompts
+- [Graph mode](graph-mode.md) — call-hierarchy authoring, the diagnostic codes, and node comments
 - [crit skill](../integrations/) — how agents consume finish JSON
 - [crit-story skill](../integrations/claude-code/skills/crit-story/SKILL.md) — the thin shim that invokes `crit story --guide` / `--prep` / `--story-file`

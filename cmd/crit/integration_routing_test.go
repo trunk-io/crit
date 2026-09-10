@@ -105,7 +105,9 @@ func TestIntegrationMap_SnapshotGlobalRouting(t *testing.T) {
 		kind       globalDestKind
 	}
 	expected := map[string][]want{
-		"claude-code": {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
+		// Four entries: crit, crit-cli, crit-story, crit-graph. Claude Code reads
+		// project skills, so none of them route to a global destination.
+		"claude-code": {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"cursor":      {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"codex":       {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},
 		"qwen":        {{"", globalDestNone}, {"", globalDestNone}, {"", globalDestNone}},

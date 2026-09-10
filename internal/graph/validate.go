@@ -271,102 +271,134 @@ func validateNodes(d *session.GraphDiagnostics, g *session.Graph, scan Scan) {
 	}
 
 	// Iterate the diagram's order where possible so diagnostics read top-down,
-	// then any orphan metadata keys (already reported) in sorted order.
+	// then any orphan metadata keys (already reported) in sorted order. Each
+	// check below is independent of the others, which is why they are separate
+	// functions: one node can legitimately produce several findings, and an
+	// author fixing them all in one edit needs to see all of them.
 	for _, id := range nodeOrder(g, scan) {
 		n := g.Nodes[id]
-
-		if identRe.FindString(id) != id {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeBadID, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node ID " + q(id) + " is not a plain identifier",
-				Fix:     "rename it to match [A-Za-z_][A-Za-z0-9_]* in both the diagram and `nodes`",
-			})
-		}
-		if !validStatuses[n.Status] {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeBadStatus, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node " + q(id) + " has status " + q(n.Status),
-				Fix:     `set "status" to "existing", "new", "modified", or "external"`,
-			})
-		}
-		if n.Kind != "" && !validKinds[n.Kind] {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeBadKind, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node " + q(id) + " has kind " + q(n.Kind),
-				Fix:     `set "kind" to "function", "module", or "external" (or omit it for a function)`,
-			})
-		}
-
-		isBoundary := n.Kind == session.KindExternal || n.Status == session.StatusExternal
-		if strings.TrimSpace(n.Signature) == "" && !isBoundary && !subgraph[id] {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeMissingSignature, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node " + q(id) + " has no signature, so its hover card would be empty",
-				Fix:     `set "signature" to the full declaration, e.g. "async mintJwt(orgId: string): Promise<string>"`,
-			})
-		}
-		if strings.TrimSpace(n.File) == "" && !isBoundary {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeMissingFile, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node " + q(id) + " has no file, so it has nothing to copy",
-				Fix:     `set "file" to the repo-relative path where this lives (or will live)`,
-			})
-		} else if strings.HasPrefix(n.File, "/") {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeAbsolutePath, Severity: session.SeverityError,
-				Node:    id,
-				Message: "node " + q(id) + " has an absolute file path " + q(n.File),
-				Fix:     "use a repo-relative path so the copied location works in anyone's checkout",
-			})
-		}
-		// The missing-line rule is the one place phase changes a severity,
-		// because "we don't know the line" is the truth for net-new code
-		// during planning and an oversight everywhere else. A net-new node in
-		// a plan is therefore silent, not merely tolerated: warning on it
-		// would fire on the common case and train authors to ignore warnings.
-		if n.Line <= 0 && !isBoundary && !subgraph[id] {
-			planningNewCode := n.Status == session.StatusNew && g.Phase != session.PhaseReview
-			if !planningNewCode {
-				sev := session.SeverityWarning
-				fix := `set "line" to the declaration's line; the copy button falls back to the file alone without it`
-				if g.Phase == session.PhaseReview && n.Status != session.StatusNew {
-					sev = session.SeverityError
-					fix = `set "line" to the declaration's line — in review phase this code exists, so read it from the file`
-				}
-				add(d, session.GraphDiagnostic{
-					Code: CodeNodeMissingLine, Severity: sev,
-					Node:    id,
-					Message: "node " + q(id) + " has no line number",
-					Fix:     fix,
-				})
-			}
-		}
-
-		for _, b := range n.Badges {
-			if !legend[b] {
-				add(d, session.GraphDiagnostic{
-					Code: CodeBadgeUnknown, Severity: session.SeverityError,
-					Node: id, Badge: b,
-					Message: "node " + q(id) + " carries badge " + q(b) + ", which the legend does not define",
-					Fix:     fmt.Sprintf(`add {"id": %q, "label": "...", "color": "blue"} to "legend", or remove the badge`, b),
-				})
-			}
-		}
-
-		if degree[id] == 0 && !subgraph[id] && len(scan.Nodes) > 1 {
-			add(d, session.GraphDiagnostic{
-				Code: CodeNodeIsolated, Severity: session.SeverityWarning,
-				Node:    id,
-				Message: "node " + q(id) + " has no edges, so it says nothing about the call hierarchy",
-				Fix:     "connect it to its caller or callee, or drop it",
-			})
-		}
+		validateNodeVocabulary(d, id, n)
+		validateNodeLocation(d, g, id, n, subgraph[id])
+		validateNodeBadges(d, legend, id, n)
+		validateNodeConnectivity(d, id, degree[id], subgraph[id], len(scan.Nodes))
 	}
+}
+
+// validateNodeVocabulary checks the fields with closed value sets.
+func validateNodeVocabulary(d *session.GraphDiagnostics, id string, n session.GraphNode) {
+	if identRe.FindString(id) != id {
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeBadID, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node ID " + q(id) + " is not a plain identifier",
+			Fix:     "rename it to match [A-Za-z_][A-Za-z0-9_]* in both the diagram and `nodes`",
+		})
+	}
+	if !validStatuses[n.Status] {
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeBadStatus, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node " + q(id) + " has status " + q(n.Status),
+			Fix:     `set "status" to "existing", "new", "modified", or "external"`,
+		})
+	}
+	if n.Kind != "" && !validKinds[n.Kind] {
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeBadKind, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node " + q(id) + " has kind " + q(n.Kind),
+			Fix:     `set "kind" to "function", "module", or "external" (or omit it for a function)`,
+		})
+	}
+}
+
+// validateNodeLocation checks the fields the hover card and copy button read.
+// Boundary nodes (external kind or status) and module subgraphs are exempt:
+// there is no signature to state for code you do not own, and a subgraph's
+// location is its directory at best.
+func validateNodeLocation(d *session.GraphDiagnostics, g *session.Graph, id string, n session.GraphNode, isSubgraph bool) {
+	isBoundary := n.Kind == session.KindExternal || n.Status == session.StatusExternal
+
+	if strings.TrimSpace(n.Signature) == "" && !isBoundary && !isSubgraph {
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeMissingSignature, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node " + q(id) + " has no signature, so its hover card would be empty",
+			Fix:     `set "signature" to the full declaration, e.g. "async mintJwt(orgId: string): Promise<string>"`,
+		})
+	}
+
+	switch {
+	case strings.TrimSpace(n.File) == "" && !isBoundary:
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeMissingFile, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node " + q(id) + " has no file, so it has nothing to copy",
+			Fix:     `set "file" to the repo-relative path where this lives (or will live)`,
+		})
+	case strings.HasPrefix(n.File, "/"):
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeAbsolutePath, Severity: session.SeverityError,
+			Node:    id,
+			Message: "node " + q(id) + " has an absolute file path " + q(n.File),
+			Fix:     "use a repo-relative path so the copied location works in anyone's checkout",
+		})
+	}
+
+	if n.Line <= 0 && !isBoundary && !isSubgraph {
+		validateMissingLine(d, g, id, n)
+	}
+}
+
+// validateMissingLine is the one place phase changes a severity, because
+// "we don't know the line" is the truth for net-new code during planning and
+// an oversight everywhere else. A net-new node in a plan is therefore silent,
+// not merely tolerated: warning on it would fire on the common case and train
+// authors to ignore warnings.
+func validateMissingLine(d *session.GraphDiagnostics, g *session.Graph, id string, n session.GraphNode) {
+	if n.Status == session.StatusNew && g.Phase != session.PhaseReview {
+		return
+	}
+	sev := session.SeverityWarning
+	fix := `set "line" to the declaration's line; the copy button falls back to the file alone without it`
+	if g.Phase == session.PhaseReview && n.Status != session.StatusNew {
+		sev = session.SeverityError
+		fix = `set "line" to the declaration's line — in review phase this code exists, so read it from the file`
+	}
+	add(d, session.GraphDiagnostic{
+		Code: CodeNodeMissingLine, Severity: sev,
+		Node:    id,
+		Message: "node " + q(id) + " has no line number",
+		Fix:     fix,
+	})
+}
+
+func validateNodeBadges(d *session.GraphDiagnostics, legend map[string]bool, id string, n session.GraphNode) {
+	for _, b := range n.Badges {
+		if legend[b] {
+			continue
+		}
+		add(d, session.GraphDiagnostic{
+			Code: CodeBadgeUnknown, Severity: session.SeverityError,
+			Node: id, Badge: b,
+			Message: "node " + q(id) + " carries badge " + q(b) + ", which the legend does not define",
+			Fix:     fmt.Sprintf(`add {"id": %q, "label": "...", "color": "blue"} to "legend", or remove the badge`, b),
+		})
+	}
+}
+
+// validateNodeConnectivity flags a node that contributes nothing to a
+// hierarchy. A single-node graph is exempt — it has no edges by definition.
+func validateNodeConnectivity(d *session.GraphDiagnostics, id string, degree int, isSubgraph bool, totalNodes int) {
+	if degree > 0 || isSubgraph || totalNodes <= 1 {
+		return
+	}
+	add(d, session.GraphDiagnostic{
+		Code: CodeNodeIsolated, Severity: session.SeverityWarning,
+		Node:    id,
+		Message: "node " + q(id) + " has no edges, so it says nothing about the call hierarchy",
+		Fix:     "connect it to its caller or callee, or drop it",
+	})
 }
 
 // nodeOrder lists node IDs diagram-first (so diagnostics read top-down like

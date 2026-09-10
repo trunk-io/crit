@@ -356,53 +356,67 @@ func readGraphJSON(path string) (*session.Graph, error) {
 // attach to a plan review as easily as to a diff. Graph mode deliberately does
 // not require a diff the way story mode does: the planning-phase graph is
 // usually authored alongside a plan file, before any code exists.
+// resolveGraphReviewPath mirrors `crit comment`'s targeting so a graph can
+// attach to a plan review as easily as to a diff. Graph mode deliberately does
+// not require a diff the way story mode does: the planning-phase graph is
+// usually authored alongside a plan file, before any code exists.
 func resolveGraphReviewPath(f *graphFlags) (string, error) {
 	switch {
 	case f.sessionID != "":
-		if f.plan != "" || f.outputDir != "" {
-			return "", clicmd.ExitError{Code: 1, Err: errors.New("--session cannot be used with --plan or --output")}
-		}
-		if !daemon.ValidSessionKey(f.sessionID) {
-			return "", clicmd.ExitError{Code: 1, Err: daemon.InvalidSessionIDError(f.sessionID)}
-		}
-		entry, alive := graphDaemonAlive(f.sessionID)
-		if !alive || entry.ReviewPath == "" {
-			return "", clicmd.ExitError{Code: 1, Err: fmt.Errorf("no active review session %s", f.sessionID)}
-		}
-		return entry.ReviewPath, nil
-
+		return resolveGraphSessionPath(f)
 	case f.plan != "":
-		if f.outputDir != "" {
-			return "", clicmd.ExitError{Code: 1, Err: errors.New("--plan and --output cannot be used together")}
-		}
-		planDir, err := session.PlanStorageDir(session.Slugify(f.plan))
-		if err != nil {
-			return "", clicmd.ExitError{Code: 1, Err: err}
-		}
-		f.outputDir = planDir
-		return filepath.Join(planDir, ".crit"), nil
-
+		return resolveGraphPlanPath(f)
 	default:
-		key, err := graphReviewSessionKey(*f)
-		if err != nil {
-			return "", err
-		}
-		if entry, alive := graphDaemonAlive(key); alive && entry.ReviewPath != "" {
-			return entry.ReviewPath, nil
-		}
-		if f.outputDir != "" {
-			path, err := reviewpath.Identity(f.outputDir, key)
-			if err != nil {
-				return "", clicmd.ExitError{Code: 1, Err: err}
-			}
-			return path, nil
-		}
-		path, err := reviewFilePath(key)
+		return resolveGraphDefaultPath(f)
+	}
+}
+
+func resolveGraphSessionPath(f *graphFlags) (string, error) {
+	if f.plan != "" || f.outputDir != "" {
+		return "", clicmd.ExitError{Code: 1, Err: errors.New("--session cannot be used with --plan or --output")}
+	}
+	if !daemon.ValidSessionKey(f.sessionID) {
+		return "", clicmd.ExitError{Code: 1, Err: daemon.InvalidSessionIDError(f.sessionID)}
+	}
+	entry, alive := graphDaemonAlive(f.sessionID)
+	if !alive || entry.ReviewPath == "" {
+		return "", clicmd.ExitError{Code: 1, Err: fmt.Errorf("no active review session %s", f.sessionID)}
+	}
+	return entry.ReviewPath, nil
+}
+
+func resolveGraphPlanPath(f *graphFlags) (string, error) {
+	if f.outputDir != "" {
+		return "", clicmd.ExitError{Code: 1, Err: errors.New("--plan and --output cannot be used together")}
+	}
+	planDir, err := session.PlanStorageDir(session.Slugify(f.plan))
+	if err != nil {
+		return "", clicmd.ExitError{Code: 1, Err: err}
+	}
+	f.outputDir = planDir
+	return filepath.Join(planDir, ".crit"), nil
+}
+
+func resolveGraphDefaultPath(f *graphFlags) (string, error) {
+	key, err := graphReviewSessionKey(*f)
+	if err != nil {
+		return "", err
+	}
+	if entry, alive := graphDaemonAlive(key); alive && entry.ReviewPath != "" {
+		return entry.ReviewPath, nil
+	}
+	if f.outputDir != "" {
+		path, err := reviewpath.Identity(f.outputDir, key)
 		if err != nil {
 			return "", clicmd.ExitError{Code: 1, Err: err}
 		}
 		return path, nil
 	}
+	path, err := reviewFilePath(key)
+	if err != nil {
+		return "", clicmd.ExitError{Code: 1, Err: err}
+	}
+	return path, nil
 }
 
 func graphReviewSessionKey(f graphFlags) (string, error) {

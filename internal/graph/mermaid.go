@@ -205,82 +205,99 @@ func ScanDiagram(src string) Scan {
 // would add a second finding naming a node that does not exist — `mint-token`
 // would report both "unparsable" and "node `mint` has no metadata", sending an
 // author to fix a phantom.
+// statementScan is the in-progress read of one statement. Nodes and edges
+// accumulate here and are committed to the Scan only if the whole statement
+// scans cleanly — see scanStatement.
+type statementScan struct {
+	groups        [][]string
+	cur           []string
+	pending       []ScanNode
+	labelBackfill []ScanNode
+}
+
 func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
-	var groups [][]string
-	var pending []ScanNode
-	var labelBackfill []ScanNode
-	cur := []string{}
+	st := &statementScan{cur: []string{}}
 	pos := 0
-	failed := false
 
 	for pos < len(line) {
-		if line[pos] == ' ' || line[pos] == '\t' {
-			pos++
-			continue
+		next, ok := sc.readToken(line, pos, lineNo, st)
+		if !ok {
+			return
 		}
-		if line[pos] == ';' {
-			pos++
-			continue
-		}
-		if m := edgeOp.FindStringSubmatch(line[pos:]); m != nil {
-			pos += len(m[0])
-			pos = skipEdgeLabel(line, pos)
-			groups = append(groups, cur)
-			cur = []string{}
-			continue
-		}
-		if line[pos] == '&' {
-			pos++
-			continue
-		}
-		if id := identRe.FindString(line[pos:]); id != "" {
-			pos += len(id)
-			label := ""
-			hasShape := false
-			if end, lbl, ok := consumeShape(line, pos); ok {
-				label, hasShape = lbl, true
-				pos = end
-			} else if end > pos {
-				sc.Findings = append(sc.Findings, Finding{
-					Code:    "diagram_unparsable_line",
-					Line:    lineNo,
-					Node:    id,
-					Message: "unterminated node label after `" + id + "`",
-					Fix:     `close the bracket, and double-quote any label containing brackets: id["Label"]`,
-				})
-				failed = true
-				break
-			}
-			cur = append(cur, id)
-			if _, dup := seen[id]; !dup {
-				pending = append(pending, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: hasShape})
-			} else if hasShape {
-				labelBackfill = append(labelBackfill, ScanNode{ID: id, Label: label})
-			}
-			continue
-		}
-		// Anything else is outside the subset. Report the character once per
-		// statement and stop reading the line, rather than emitting noise for
-		// every byte of an unsupported construct.
+		pos = next
+	}
+	st.groups = append(st.groups, st.cur)
+	sc.commitStatement(st, lineNo, seen)
+}
+
+// readToken consumes one token at pos, advancing st. ok is false when the
+// statement is unreadable, in which case a finding has already been recorded
+// and the caller must abandon the statement without committing.
+func (sc *Scan) readToken(line string, pos, lineNo int, st *statementScan) (next int, ok bool) {
+	switch c := line[pos]; {
+	case c == ' ' || c == '\t' || c == ';' || c == '&':
+		return pos + 1, true
+	default:
+	}
+	if m := edgeOp.FindStringSubmatch(line[pos:]); m != nil {
+		pos = skipEdgeLabel(line, pos+len(m[0]))
+		st.groups = append(st.groups, st.cur)
+		st.cur = []string{}
+		return pos, true
+	}
+	if id := identRe.FindString(line[pos:]); id != "" {
+		return sc.readNode(line, pos, lineNo, id, st)
+	}
+	// Anything else is outside the subset. Report the character once per
+	// statement rather than emitting noise for every byte of an unsupported
+	// construct.
+	sc.Findings = append(sc.Findings, Finding{
+		Code:    "diagram_unparsable_line",
+		Line:    lineNo,
+		Message: "unexpected `" + string(line[pos]) + "` in: " + truncate(line, 60),
+		Fix:     "node IDs must match [A-Za-z_][A-Za-z0-9_]* — no dashes or dots; see `crit graph --guide`",
+	})
+	return pos, false
+}
+
+// readNode consumes an identifier and any shape/label that follows it.
+func (sc *Scan) readNode(line string, pos, lineNo int, id string, st *statementScan) (next int, ok bool) {
+	pos += len(id)
+	label := ""
+	hasShape := false
+	if end, lbl, has := consumeShape(line, pos); has {
+		label, hasShape = lbl, true
+		pos = end
+	} else if end > pos {
 		sc.Findings = append(sc.Findings, Finding{
 			Code:    "diagram_unparsable_line",
 			Line:    lineNo,
-			Message: "unexpected `" + string(line[pos]) + "` in: " + truncate(line, 60),
-			Fix:     "node IDs must match [A-Za-z_][A-Za-z0-9_]* — no dashes or dots; see `crit graph --guide`",
+			Node:    id,
+			Message: "unterminated node label after `" + id + "`",
+			Fix:     `close the bracket, and double-quote any label containing brackets: id["Label"]`,
 		})
-		failed = true
-		break
+		return pos, false
 	}
-	if failed {
-		return
+	st.cur = append(st.cur, id)
+	st.pending = append(st.pending, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: hasShape})
+	if hasShape {
+		st.labelBackfill = append(st.labelBackfill, ScanNode{ID: id, Label: label})
 	}
-	groups = append(groups, cur)
+	return pos, true
+}
 
-	for _, n := range pending {
+// commitStatement moves a cleanly-scanned statement's nodes and edges into the
+// Scan. Edges are the cross product of consecutive groups, so `a & b --> c`
+// yields two.
+func (sc *Scan) commitStatement(st *statementScan, lineNo int, seen map[string]int) {
+	for _, n := range st.pending {
+		if _, dup := seen[n.ID]; dup {
+			continue
+		}
 		seen[n.ID] = n.Line
 		sc.Nodes = append(sc.Nodes, n)
 	}
-	for _, bf := range labelBackfill {
+	for _, bf := range st.labelBackfill {
 		for i := range sc.Nodes {
 			if sc.Nodes[i].ID == bf.ID && sc.Nodes[i].Label == "" {
 				sc.Nodes[i].Label = bf.Label
@@ -288,9 +305,9 @@ func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
 			}
 		}
 	}
-	for i := 0; i+1 < len(groups); i++ {
-		for _, from := range groups[i] {
-			for _, to := range groups[i+1] {
+	for i := 0; i+1 < len(st.groups); i++ {
+		for _, from := range st.groups[i] {
+			for _, to := range st.groups[i+1] {
 				sc.Edges = append(sc.Edges, ScanEdge{From: from, To: to, Line: lineNo})
 			}
 		}
