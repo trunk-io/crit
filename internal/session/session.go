@@ -424,6 +424,11 @@ type Session struct {
 	// ingested one). Read/write under s.mu; surfaced via GetSessionInfo.
 	story *Story
 
+	// graph is the loaded call hierarchy from review.json (nil unless
+	// `crit graph` ingested one). Read/write under s.mu; surfaced via
+	// GetSessionInfo.
+	graph *Graph
+
 	// RoundSnapshots is in-memory state populated from <folder>/snapshots.json
 	// at boot. Persisted via SaveSnapshotsFile; never written into review.json.
 	//
@@ -539,6 +544,13 @@ type CritJSON struct {
 	// buildCritJSON): as long as the field exists here, an externally-set story
 	// survives the debounced writes.
 	Story *Story `json:"story,omitempty"`
+
+	// Graph is the optional agent-authored call hierarchy. Nil unless
+	// `crit graph` has ingested one. Preserved across the daemon's
+	// read-merge-modify write cycle for the same reason Story is: being a
+	// field here is what makes an externally-set graph survive the debounced
+	// writes (see buildCritJSON).
+	Graph *Graph `json:"graph,omitempty"`
 }
 
 // RemoteDeletesFor returns one provider's pending delete operations.
@@ -2617,6 +2629,9 @@ func (s *Session) loadCritJSONLocked() {
 	// Restore the story (nil if none), so GetSessionInfo can surface it.
 	s.story = cj.Story
 
+	// Restore the call-hierarchy graph (nil if none).
+	s.graph = cj.Graph
+
 	// Restore pending DELETE intents so they survive across daemon restarts.
 	s.pendingRemoteDeletes = append([]RemoteRef(nil), cj.PendingRemoteDeletes...)
 	s.lastLoadedPendingDeletes = make(map[RemoteRef]struct{}, len(cj.PendingRemoteDeletes))
@@ -2943,6 +2958,7 @@ type SessionInfo struct {
 	LastRangeFocus   *Focus            `json:"last_range_focus,omitempty"`
 	HiddenUnresolved int               `json:"hidden_unresolved"`
 	Story            *Story            `json:"story,omitempty"`
+	Graph            *Graph            `json:"graph,omitempty"`
 }
 
 // SessionFileInfo is a summary of a file for the session API response.
@@ -2993,6 +3009,7 @@ func (s *Session) GetSessionInfo() SessionInfo {
 		Focus:          s.Focus,
 		LastRangeFocus: s.LastRangeFocus,
 		Story:          s.story,
+		Graph:          s.graph,
 	}
 
 	info.AvailableScopes = cachedAvailableScopes(info.BaseRef, vc)

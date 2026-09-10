@@ -67,7 +67,10 @@ type writeFilesSnapshot struct {
 	// CritJSON like the other daemon-managed fields above so `crit story`'s
 	// daemon-side mutators (set via s.SetStory) are actually persisted —
 	// buildCritJSON otherwise only preserves whatever was already on disk.
-	story                   *Story
+	story *Story
+	// graph is the session's in-memory call hierarchy (nil if none), carried
+	// for the same reason story is.
+	graph                   *Graph
 	pendingRemoteDeletes    []RemoteRef
 	lastLoadedRemoteDeletes map[RemoteRef]struct{}
 	// Per-file data needed for the merge. We copy comments so the snapshot
@@ -160,6 +163,7 @@ func buildCritJSON(snap writeFilesSnapshot) CritJSON {
 	cj.ReviewComments = snap.reviewComments
 	cj.CliArgs = snap.cliArgs
 	cj.Story = snap.story
+	cj.Graph = snap.graph
 	cj.PendingRemoteDeletes = reconcilePendingRemoteDeletes(
 		snap.pendingRemoteDeletes, cj.PendingRemoteDeletes, snap.lastLoadedRemoteDeletes,
 	)
@@ -365,6 +369,7 @@ func (s *Session) snapshotForWrite(critPath string) writeFilesSnapshot {
 		reviewComments:          rc,
 		cliArgs:                 s.CLIArgs,
 		story:                   s.story,
+		graph:                   s.graph,
 		pendingRemoteDeletes:    pendDeletes,
 		lastLoadedRemoteDeletes: lastLoaded,
 		files:                   make([]writeFileSnapshot, len(s.Files)),
