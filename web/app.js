@@ -1128,6 +1128,12 @@
     scrollToHashHeading();
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
+    // A graph-only review (`crit graph` outside a repo, or with no diff) has
+    // nothing in the file list, so default to the diagram rather than landing
+    // the reader on an empty pane they have to click out of. Evaluated here
+    // rather than in loadGraph because the file list loads asynchronously —
+    // deciding earlier would auto-show the graph in review mode too.
+    maybeAutoShowGraph();
     updateDiffModeToggle();
   }
 
@@ -8589,6 +8595,15 @@
     window.crit.graphView.setComments(graphComments);
     window.crit.graphView.refreshCommentBadge(nodeId);
     return comment;
+  }
+
+  // maybeAutoShowGraph surfaces the graph when it is the review's only
+  // content. It never hides a view the reader chose, and never fires when
+  // there is a diff to look at.
+  function maybeAutoShowGraph() {
+    if (graphVisible || !graphViewAvailable()) return;
+    if ((files || []).length > 0) return;
+    setGraphVisible(true);
   }
 
   function initGraphViewToggle() {

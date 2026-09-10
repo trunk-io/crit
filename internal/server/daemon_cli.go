@@ -49,10 +49,14 @@ type DaemonCLIConfig struct {
 	Focus                       *session.Focus
 	RemoteFiles                 bool
 	LiveOrigin                  string
-	LiveCookie                  string
-	PreviewFile                 string
-	SessionID                   string // user-facing reconnect ID from --session
-	SessionKeyOverride          string // internal: force session registry key in _serve
+	// GraphOnly serves a review whose only content is the call-hierarchy
+	// graph. Set by `crit graph` when it spawns a daemon, so a graph authored
+	// with no diff — or outside a repository — is still viewable.
+	GraphOnly          bool
+	LiveCookie         string
+	PreviewFile        string
+	SessionID          string // user-facing reconnect ID from --session
+	SessionKeyOverride string // internal: force session registry key in _serve
 }
 
 type daemonFlagSet struct {
@@ -81,6 +85,7 @@ type daemonFlagSet struct {
 	liveOrigin                  string
 	liveCookie                  string
 	previewFile                 string
+	graphOnly                   bool
 	sessionID                   string
 	sessionKeyOverride          string
 }
@@ -127,6 +132,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 	liveOrigin := fs.String("live-origin", "", "")
 	liveCookie := fs.String("live-cookie", "", "")
 	previewFile := fs.String("preview-file", "", "")
+	graphOnly := fs.Bool("graph-only", false, "")
 	sessionID := fs.String("session", "", "Reconnect to an existing review session by ID")
 	sessionKeyOverride := fs.String("session-key", "", "")
 	fs.Usage = func() {
@@ -144,6 +150,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		"q":                                    true,
 		"no-ignore":                            true,
 		"remote":                               true,
+		"graph-only":                           true,
 	})
 	fs.Parse(args)
 	shareURLSet := false
@@ -178,6 +185,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		liveOrigin:                  *liveOrigin,
 		liveCookie:                  *liveCookie,
 		previewFile:                 *previewFile,
+		graphOnly:                   *graphOnly,
 		sessionID:                   *sessionID,
 		sessionKeyOverride:          *sessionKeyOverride,
 	}
@@ -345,6 +353,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 		LiveOrigin:                  sf.liveOrigin,
 		LiveCookie:                  sf.liveCookie,
 		PreviewFile:                 sf.previewFile,
+		GraphOnly:                   sf.graphOnly,
 		SessionID:                   sf.sessionID,
 		SessionKeyOverride:          sf.sessionKeyOverride,
 	}, nil

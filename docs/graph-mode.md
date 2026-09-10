@@ -123,11 +123,33 @@ zero warnings. Starting there is the cheapest way to avoid the loop entirely.
 
 `crit graph <file>` and a bare `crit graph` both start the review daemon if one
 is not already running and open the browser on `#graph`, so the reader lands on
-the diagram rather than having to find the toggle. That spawn deliberately
-bypasses the "No changed files" preflight a bare `crit` applies: a graph is
-something to show on its own, and in `plan` phase it is routinely the only
-thing in the review, authored before any of the code exists. `--no-open` starts
-the daemon without a browser.
+the diagram rather than having to find the toggle. `--no-open` starts the
+daemon without a browser.
+
+### Standalone, or alongside a review
+
+A graph does not need a diff. It works in both shapes:
+
+| Situation | What you get |
+| --- | --- |
+| A reviewable diff | The diff, plus a **Graph** toggle; `#graph` opens the diagram directly |
+| Clean tree, no diff | The graph, served on its own |
+| A repo with no commits | The graph, served on its own |
+| Not a repository at all | The graph, served on its own |
+
+Two mechanisms make the standalone cases work, and both are deliberate. The
+spawn bypasses the "No changed files" preflight a bare `crit` applies — that
+guard is right when there is nothing to show, but a graph *is* something to
+show. And `crit graph` spawns the daemon with `--graph-only`, which lets it
+build a review with no VCS and no files (`session.NewGraphSession`); without it
+the daemon exits on startup outside a repository and takes the stored graph
+with it. A graph is routinely authored during `plan` phase, before any of the
+code it describes exists, so "viewable only when a diff is reviewable" was
+backwards.
+
+When the review has no files, the viewer opens on the diagram automatically
+rather than showing an empty file pane. When there *is* a diff, the diff stays
+the default and the graph is one click (or one `#graph`) away.
 
 In the browser, the **Graph** toggle switches between the diagram and the
 files, and keeps the `#graph` fragment in step so a copied URL reopens the same

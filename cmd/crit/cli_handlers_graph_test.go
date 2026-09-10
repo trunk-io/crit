@@ -377,16 +377,6 @@ func TestOpenGraphViewReusesARunningDaemon(t *testing.T) {
 	}
 }
 
-func TestGraphDaemonArgsForwardsOutputDir(t *testing.T) {
-	if got := graphDaemonArgs(graphFlags{}); len(got) != 0 {
-		t.Errorf("args = %v, want none", got)
-	}
-	got := graphDaemonArgs(graphFlags{outputDir: "/tmp/data"})
-	if len(got) != 2 || got[0] != "--output" || got[1] != "/tmp/data" {
-		t.Errorf("args = %v, want [--output /tmp/data]", got)
-	}
-}
-
 var (
 	spawnedKey string
 	openedURL  string
@@ -406,5 +396,19 @@ func stubGraphDaemon(t *testing.T) func() {
 	openBrowser = func(url, _ string) { openedURL = url }
 	return func() {
 		graphDaemonAlive, graphStartDaemon, graphDaemonHasBrowser, openBrowser = origAlive, origStart, origHasBrowser, origOpen
+	}
+}
+
+// --graph-only is what lets a spawned daemon serve a review with no VCS and no
+// diff. Without it the daemon exits on startup and takes the stored graph with
+// it, so the graph was viewable only when a diff happened to be reviewable.
+func TestGraphDaemonArgsAlwaysRequestsGraphOnly(t *testing.T) {
+	got := graphDaemonArgs(graphFlags{})
+	if len(got) != 1 || got[0] != "--graph-only" {
+		t.Fatalf("args = %v, want [--graph-only]", got)
+	}
+	got = graphDaemonArgs(graphFlags{outputDir: "/tmp/data"})
+	if len(got) != 3 || got[0] != "--graph-only" || got[1] != "--output" || got[2] != "/tmp/data" {
+		t.Errorf("args = %v, want [--graph-only --output /tmp/data]", got)
 	}
 }

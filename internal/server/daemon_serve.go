@@ -21,6 +21,12 @@ func CreateSession(sc *DaemonCLIConfig) (*Session, error) {
 	if len(sc.Files) == 0 {
 		v := vcs.DetectVCS(sc.VCSOverride)
 		if v == nil {
+			// A graph-only review has no VCS and no files by design: the graph
+			// IS the content. Without this the daemon exited here and took the
+			// stored graph down with it.
+			if sc.GraphOnly {
+				return session.NewGraphSession(sc.ReviewPath)
+			}
 			return nil, fmt.Errorf("not in a version-controlled repository and no files specified")
 		}
 		if sc.BaseBranch != "" {

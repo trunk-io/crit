@@ -62,11 +62,20 @@ func graphNoOpen(f graphFlags, cwd string) bool {
 
 // graphDaemonArgs forwards the review targeting to the spawned daemon so it
 // serves the same review the graph was saved to.
+//
+// --graph-only is always passed: it makes the daemon serve a review whose only
+// content is the graph. Without it a daemon spawned outside a repository exits
+// on startup ("not in a version-controlled repository and no files specified")
+// and takes the stored graph with it — the graph was viewable only when a diff
+// happened to be reviewable, which is backwards for an artifact usually
+// authored before the code exists. A diff, when there is one, still shows: the
+// flag only relaxes the requirement that there be one.
 func graphDaemonArgs(f graphFlags) []string {
+	args := []string{"--graph-only"}
 	if f.outputDir != "" {
-		return []string{"--output", f.outputDir}
+		args = append(args, "--output", f.outputDir)
 	}
-	return nil
+	return args
 }
 
 // openGraphView surfaces the graph. A running daemon already has the graph

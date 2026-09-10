@@ -252,3 +252,20 @@ test('the node-count fallback excludes modules', () => {
   assert.strictEqual(view.countCallNodes({}), 0);
   assert.strictEqual(view.countCallNodes(null), 0);
 });
+
+// A graph-only review has an empty file list, so it must default to the
+// diagram rather than landing the reader on an empty pane. The decision has to
+// happen after the file list loads — deciding in loadGraph would auto-show the
+// graph in review mode too, because files load asynchronously.
+test('a graph-only review defaults to the diagram', () => {
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  assert.ok(app.includes('function maybeAutoShowGraph'), 'need an auto-show decision');
+  assert.ok(
+    app.includes('applyStoryPresence();\n    // A graph-only review'),
+    'auto-show must run after the session load, beside applyStoryPresence'
+  );
+  const fn = app.slice(app.indexOf('function maybeAutoShowGraph'));
+  const body = fn.slice(0, fn.indexOf('\n  }'));
+  assert.ok(body.includes('(files || []).length > 0'), 'must not fire when there is a diff');
+  assert.ok(body.includes('graphVisible'), 'must not override a view the reader chose');
+});
