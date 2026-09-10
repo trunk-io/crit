@@ -18,6 +18,7 @@ type commentFlags struct {
 	file             string
 	plan             string
 	sessionID        string
+	node             string
 	sessionEntry     *daemon.SessionEntry
 	scope            CommentFocusOverride
 	args             []string
@@ -55,6 +56,13 @@ func parseCommentFlags(args []string) (commentFlags, error) { //nolint:gocyclo /
 				return f, err
 			}
 			f.author = val
+			i++
+		case "--node":
+			val, err := clicmd.RequireFlagValue(args, i, "--node")
+			if err != nil {
+				return f, err
+			}
+			f.node = val
 			i++
 		case "--reply-to":
 			val, err := clicmd.RequireFlagValue(args, i, "--reply-to")

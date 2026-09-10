@@ -136,7 +136,16 @@ They reach an agent through `crit comments` with `scope: "node"` and a
 ```
 
 A comment naming a node the current graph does not contain is refused — that is
-feedback nobody could act on.
+feedback nobody could act on. The refusal lists the graph's real node IDs, so a
+typo is a one-round fix.
+
+An agent can author node comments too, which is what multi-agent review flows
+need:
+
+```bash
+crit comment --node mintToken 'Signing key handling needs review'
+echo '[{"node": "handler", "body": "…"}]' | crit comment --json --author 'Agent B'
+```
 
 ## Common commands
 
@@ -150,6 +159,7 @@ feedback nobody could act on.
 | `crit graph --plan <slug> <file>` | Attach to a stored plan review |
 | `crit graph` | Report what is stored |
 | `crit graph --clear` | Remove the graph from the review |
+| `crit comment --node <id> <body>` | Comment on a node from the CLI |
 
 Graph mode does **not** require a diff — unlike story mode. A `plan`-phase
 graph is normally authored alongside a plan file, before any code exists, so

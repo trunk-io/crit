@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -266,7 +267,8 @@ type BulkCommentEntry struct {
 	EndLine  int    `json:"end_line,omitempty"` // defaults to Line if omitted
 	Body     string `json:"body"`
 	Author   string `json:"author,omitempty"` // overrides per-entry; falls back to global
-	Scope    string `json:"scope,omitempty"`  // "review", "file", or "" (inferred)
+	Scope    string `json:"scope,omitempty"`  // "review", "file", "node", or "" (inferred)
+	Node     string `json:"node,omitempty"`   // graph node ID; implies scope "node"
 
 	// session.Reply fields
 	ReplyTo string `json:"reply_to,omitempty"`
@@ -325,6 +327,16 @@ func processBulkEntry(cj *session.CritJSON, i int, e BulkCommentEntry, globalAut
 
 	if e.ReplyTo != "" {
 		if err := appendReply(cj, e.ReplyTo, e.Body, author, userID, e.Resolve, e.File); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+		return nil
+	}
+
+	if e.Node != "" || e.Scope == "node" {
+		if e.Node == "" {
+			return fmt.Errorf(`entry %d: scope "node" requires a "node" id`, i)
+		}
+		if err := appendNodeCommentScoped(cj, e.Node, e.Body, author, userID, scope); err != nil {
 			return fmt.Errorf("entry %d: %w", i, err)
 		}
 		return nil
@@ -611,6 +623,56 @@ func appendReviewCommentScoped(cj *session.CritJSON, body, author, userID string
 		UpdatedAt: now,
 	}, scope.AsFocus())
 	cj.ReviewComments = append(cj.ReviewComments, c)
+}
+
+// appendNodeCommentScoped adds a comment anchored to a graph node. It refuses
+// a node the stored graph does not contain: a comment keyed to a node nobody
+// can see is feedback the agent cannot act on, and the daemon's API refuses it
+// for the same reason — so the CLI must not be the one lenient door.
+func appendNodeCommentScoped(cj *session.CritJSON, nodeID, body, author, userID string, scope session.InheritedScope) error {
+	if cj.Graph == nil {
+		return fmt.Errorf("no call-hierarchy graph on this review — run `crit graph <file>` first")
+	}
+	if _, ok := cj.Graph.Nodes[nodeID]; !ok {
+		return fmt.Errorf("node %q is not in the graph (known nodes: %s)", nodeID, knownNodeList(cj.Graph))
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	cj.UpdatedAt = now
+
+	c := session.StampWithFocus(session.Comment{
+		ID:        session.RandomReviewCommentID(),
+		Body:      body,
+		Author:    author,
+		UserID:    userID,
+		Scope:     "node",
+		NodeID:    nodeID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, scope.AsFocus())
+	cj.ReviewComments = append(cj.ReviewComments, c)
+	return nil
+}
+
+// knownNodeList renders the graph's node IDs for an error message, so a
+// mistyped node is a one-round fix rather than a guess.
+func knownNodeList(g *session.Graph) string {
+	ids := make([]string, 0, len(g.Nodes))
+	for id := range g.Nodes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ", ")
+}
+
+func addNodeCommentToCritJSONAtPath(nodeID, body, author, userID, critPath string, scope session.InheritedScope) error {
+	cj, err := review.LoadCritJSON(critPath)
+	if err != nil {
+		return err
+	}
+	if err := appendNodeCommentScoped(&cj, nodeID, body, author, userID, scope); err != nil {
+		return err
+	}
+	return review.SaveCritJSON(critPath, cj)
 }
 
 // appendFileCommentScoped adds a file-level comment (scope: "file", lines: 0)

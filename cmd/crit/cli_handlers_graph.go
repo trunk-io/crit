@@ -258,8 +258,8 @@ func runGraphStatus(cj review.CritJSON) error {
 		return clicmd.ExitError{Code: 1, Err: errors.New("no graph")}
 	}
 	printGraphDiagnostics(cj.Graph.Diagnostics)
-	fmt.Fprintf(os.Stderr, "Graph present: %q (phase %s, %d nodes).\n",
-		cj.Graph.Title, cj.Graph.Phase, len(cj.Graph.Nodes))
+	fmt.Fprintf(os.Stderr, "Graph present: %q (phase %s, %s).\n",
+		cj.Graph.Title, cj.Graph.Phase, describeGraphShape(cj.Graph.Diagnostics))
 	return nil
 }
 
@@ -267,15 +267,36 @@ func printGraphSaved(d *session.GraphDiagnostics) {
 	if d == nil {
 		return
 	}
-	msg := fmt.Sprintf("Saved graph: %d nodes, %d edges", d.Stats.Nodes, d.Stats.Edges)
+	msg := "Saved graph: " + describeGraphShape(d)
 	if d.Warnings > 0 {
 		msg += fmt.Sprintf(", %d warning(s)", d.Warnings)
 	}
 	if d.Drift != nil {
-		msg += fmt.Sprintf(" — drift: +%d/-%d, %d status change(s)",
-			len(d.Drift.Added), len(d.Drift.Removed), len(d.Drift.StatusChanged))
+		msg += fmt.Sprintf(" — drift: +%d/-%d, %s",
+			len(d.Drift.Added), len(d.Drift.Removed), countLabel(len(d.Drift.StatusChanged), "status change"))
 	}
 	fmt.Fprintln(os.Stderr, msg+".")
+}
+
+// describeGraphShape renders the node/module/edge counts. Both the save
+// summary and the status line go through it so they can never print different
+// figures for the same graph.
+func describeGraphShape(d *session.GraphDiagnostics) string {
+	if d == nil {
+		return "unknown shape"
+	}
+	s := countLabel(d.Stats.Nodes, "node")
+	if d.Stats.Modules > 0 {
+		s += ", " + countLabel(d.Stats.Modules, "module")
+	}
+	return s + ", " + countLabel(d.Stats.Edges, "edge")
+}
+
+func countLabel(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // printGraphDiagnostics writes the report to stdout as one JSON object. Both

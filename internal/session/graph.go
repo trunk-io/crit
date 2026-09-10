@@ -104,8 +104,14 @@ type GraphDiagnostics struct {
 
 // GraphStats is the shape summary, useful both as a sanity check for the
 // author and as the thing a human skims before opening the diagram.
+//
+// Nodes counts call nodes only and Modules counts subgraphs, because they are
+// different things to a reader — and because reporting one combined "nodes"
+// figure meant `crit graph` printed two different counts under the same word
+// depending on whether it was summarizing the diagram or the metadata map.
 type GraphStats struct {
 	Nodes    int `json:"nodes"`
+	Modules  int `json:"modules,omitempty"`
 	Edges    int `json:"edges"`
 	New      int `json:"new"`
 	Existing int `json:"existing"`

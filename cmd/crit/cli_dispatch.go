@@ -70,6 +70,7 @@ Options:
 	{name: "comment", handler: runComment, help: `Usage: crit comment [options] <body>
        crit comment [options] <path> <body>
        crit comment [options] <path>:<line[-end]> <body>
+       crit comment [options] --node <node-id> <body>
        crit comment [options] --reply-to <id> [--resolve] <body>
        crit comment [options] --json [--file <path>]
        crit comment [options] --clear
@@ -81,6 +82,7 @@ Options:
       --author <name>  Comment author
       --plan <name>    Target a stored plan review
       --session <id>   Target an active review session (all comment modes)
+      --node <id>      Comment on a call-hierarchy graph node
       --reply-to <id>  Reply to an existing comment
       --resolve        Resolve the parent after replying
       --path <path>    File path for a reply
@@ -301,6 +303,7 @@ Review:
 
 Comments:
   crit comment <path>:<line[-end]> <body>    Add a comment (headless, no server needed)
+  crit comment --node <node-id> <body>       Comment on a call-hierarchy graph node
   crit comment --reply-to <id> <body>        Reply to a comment
   crit comment --json                        Bulk add comments from JSON on stdin
   crit comment --clear                       Remove all comments

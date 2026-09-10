@@ -479,6 +479,7 @@ func finish(d *session.GraphDiagnostics, scan *Scan) *session.GraphDiagnostics {
 	d.OK = d.Errors == 0
 	if scan != nil {
 		d.Stats.Nodes = len(scan.Nodes)
+		d.Stats.Modules = len(scan.Subgraphs)
 		d.Stats.Edges = len(scan.Edges)
 	}
 	return d

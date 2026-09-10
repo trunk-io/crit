@@ -51,6 +51,15 @@ func RunComment(args []string) error { //nolint:gocyclo // CLI dispatcher
 		return commentUsageError()
 	}
 
+	if f.node != "" {
+		body := strings.Join(f.args, " ")
+		if err := addNodeCommentToCritJSONAtPath(f.node, body, f.author, f.userID, f.reviewPath, scope); err != nil {
+			return err
+		}
+		fmt.Printf("Added comment on node %s\n", f.node)
+		return nil
+	}
+
 	if len(f.args) == 1 {
 		body := f.args[0]
 		if err := addReviewCommentToCritJSONAtPath(body, f.author, f.userID, f.reviewPath, scope); err != nil {

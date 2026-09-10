@@ -233,6 +233,19 @@ echo '[
 ```
 </important>
 
+<important if="the user asked you (or another agent) to comment ON the graph">
+Only when asked — the default is that humans comment and you address:
+
+```bash
+crit comment --node mintToken 'Signing key handling needs review'
+echo '[{"node": "handler", "body": "…"}, {"node": "existing", "body": "…"}]' \
+  | crit comment --json --author 'Claude Code'
+```
+
+An unknown node ID is refused and the error lists the real ones, so a typo is
+a one-round fix.
+</important>
+
 ## Step 9: Next round
 
 The finish prompt on stdout includes the command to run again. Run it in the
