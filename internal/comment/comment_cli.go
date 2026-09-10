@@ -630,6 +630,9 @@ func appendReviewCommentScoped(cj *session.CritJSON, body, author, userID string
 // can see is feedback the agent cannot act on, and the daemon's API refuses it
 // for the same reason — so the CLI must not be the one lenient door.
 func appendNodeCommentScoped(cj *session.CritJSON, nodeID, body, author, userID string, scope session.InheritedScope) error {
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("comment body is required")
+	}
 	if cj.Graph == nil {
 		return fmt.Errorf("no call-hierarchy graph on this review — run `crit graph <file>` first")
 	}

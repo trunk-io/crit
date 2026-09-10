@@ -222,3 +222,153 @@ func TestScanDiagramUnterminatedLabelCommitsNothing(t *testing.T) {
 		t.Errorf("nodes = %q, want c,d", got)
 	}
 }
+
+// A leading keyword is only a directive when it is used as one. `style` and
+// `click` are plausible function names, and treating `style --> render` as a
+// styling directive told the author to delete a line that was not one.
+func TestScanDirectiveOnlyWhenUsedAsDirective(t *testing.T) {
+	directives := []string{
+		"flowchart LR\n  a --> b\n  classDef foo fill:#f00",
+		"flowchart LR\n  a --> b\n  style a fill:#f00",
+		"flowchart LR\n  a --> b\n  click a href \"http://x\"",
+		"flowchart LR\n  a --> b\n  class a,b foo",
+		"flowchart LR\n  a --> b\n  linkStyle 0 stroke:red",
+	}
+	for _, src := range directives {
+		t.Run("directive/"+truncate(src, 44), func(t *testing.T) {
+			if !hasFinding(ScanDiagram(src), CodeDiagramForbidden) {
+				t.Errorf("want a forbidden-directive finding for %q", src)
+			}
+		})
+	}
+
+	// Used as a node, the same words must not be read as directives — they
+	// are still refused, but as reserved node IDs with a rename instruction.
+	nodeUses := []string{
+		"flowchart LR\n  style --> render",
+		"flowchart LR\n  click --> handler",
+		"flowchart LR\n  class & style --> render",
+		`flowchart LR` + "\n" + `  style["style()"] --> render`,
+	}
+	for _, src := range nodeUses {
+		t.Run("node/"+truncate(src, 44), func(t *testing.T) {
+			sc := ScanDiagram(src)
+			if hasFinding(sc, CodeDiagramForbidden) {
+				t.Errorf("a node use must not be reported as a directive: %q", src)
+			}
+			if !hasFinding(sc, CodeNodeReservedID) {
+				t.Errorf("want a reserved-id finding for %q, got %+v", src, sc.Findings)
+			}
+		})
+	}
+}
+
+// Mermaid's grammar refuses these as node IDs, so a diagram using one would
+// validate here and then fail to render — which reads as a crit bug rather
+// than an authoring one. The set was determined empirically against the
+// vendored Mermaid; `direction`, `LR` and `x` are deliberately NOT in it.
+func TestScanReservedNodeIDs(t *testing.T) {
+	for _, id := range []string{"style", "class", "classDef", "linkStyle", "click", "end", "graph", "flowchart", "subgraph", "href", "call"} {
+		t.Run("reserved/"+id, func(t *testing.T) {
+			sc := ScanDiagram("flowchart LR\n  zzz --> " + id)
+			f, ok := findFinding(sc, CodeNodeReservedID)
+			if !ok {
+				t.Fatalf("%q should be reserved, got %+v", id, sc.Findings)
+			}
+			if f.Node != id {
+				t.Errorf("finding names %q, want %q", f.Node, id)
+			}
+			if !strings.Contains(f.Fix, "rename") {
+				t.Errorf("fix should say to rename: %q", f.Fix)
+			}
+		})
+	}
+	for _, id := range []string{"direction", "LR", "TD", "o", "x", "handler", "mintToken"} {
+		t.Run("usable/"+id, func(t *testing.T) {
+			if hasFinding(ScanDiagram("flowchart LR\n  zzz --> "+id), CodeNodeReservedID) {
+				t.Errorf("%q is legal in Mermaid and must not be refused", id)
+			}
+		})
+	}
+}
+
+// An unterminated edge label used to swallow the rest of the statement, so the
+// edge's target node vanished with no explanation at all.
+func TestScanUnterminatedEdgeLabelIsReported(t *testing.T) {
+	sc := ScanDiagram("flowchart LR\n  a -->|oops b\n  c --> d")
+	f, ok := findFinding(sc, CodeDiagramUnparsable)
+	if !ok {
+		t.Fatalf("want an unparsable finding, got %+v", sc.Findings)
+	}
+	if !strings.Contains(f.Message, "edge label") {
+		t.Errorf("message should name the edge label: %q", f.Message)
+	}
+	// The clean statement after it must still be read.
+	if got := strings.Join(nodeIDs(sc), ","); got != "c,d" {
+		t.Errorf("nodes = %q, want c,d", got)
+	}
+}
+
+// Adversarial inputs. None may panic, and three invariants must hold whatever
+// the input: every recovered node ID is a plain identifier (the viewer injects
+// them back into Mermaid source), every edge endpoint is a known node, and
+// every finding is actionable.
+func TestScanDiagramAdversarialInput(t *testing.T) {
+	cases := []string{
+		"", "flowchart", "flowchart LR", "flowchart LR\n  a", "flowchart LR\n  a[",
+		`flowchart LR` + "\n" + `  a["`, "flowchart LR\n  a[]", "flowchart LR\n  -->",
+		"flowchart LR\n  a --> --> b", "flowchart LR\n  a-->b-->c",
+		"flowchart LR\n  subgraph", "flowchart LR\n  subgraph \n  end", "flowchart LR\n  end",
+		"flowchart LR\n  subgraph a\n  subgraph b\n  end\n  end", "flowchart LR\n  a --> b\n  %%",
+		`flowchart LR` + "\n" + `  a["]"] --> b`, "flowchart LR\n  a <--> b",
+		"flowchart LR\n  a -->|unterminated b", "flowchart LR\n  a & b & c --> d",
+		`flowchart LR` + "\n" + `  a{{"x"}} --> b(("y"))`, `flowchart LR` + "\n" + `  a>"flag"] --> b`,
+		"flowchart LR\n  " + strings.Repeat("a --> ", 200) + "z",
+		"flowchart LR\n  " + strings.Repeat("[", 500),
+		`flowchart LR` + "\n" + `  a["` + strings.Repeat("x", 5000) + `"] --> b`,
+		"flowchart LR\n\x00\x01 a --> b", "flowchart LR\n  ä --> b", "flowchart LR\n  a --> ä",
+		"FLOWCHART lr\n  A --> B", "graph TD\n  a --> b", "flowchart LR;a-->b;",
+		"flowchart LR\n  direction", "flowchart LR\n  a --> b\n\n\n",
+	}
+	for _, src := range cases {
+		t.Run(strings.ReplaceAll(truncate(src, 28), "\n", "\\n"), func(t *testing.T) {
+			sc := ScanDiagram(src)
+			known := map[string]bool{}
+			for _, n := range sc.Nodes {
+				if identRe.FindString(n.ID) != n.ID {
+					t.Errorf("scanner produced a non-identifier node ID %q", n.ID)
+				}
+				known[n.ID] = true
+			}
+			for _, n := range sc.Subgraphs {
+				if identRe.FindString(n.ID) != n.ID {
+					t.Errorf("scanner produced a non-identifier subgraph ID %q", n.ID)
+				}
+			}
+			for _, e := range sc.Edges {
+				if !known[e.From] || !known[e.To] {
+					t.Errorf("edge %s->%s references an unknown node (nodes=%v)", e.From, e.To, nodeIDs(sc))
+				}
+			}
+			for _, f := range sc.Findings {
+				if f.Code == "" || f.Fix == "" || f.Message == "" {
+					t.Errorf("finding is not actionable: %+v", f)
+				}
+			}
+		})
+	}
+}
+
+func hasFinding(sc Scan, code string) bool {
+	_, ok := findFinding(sc, code)
+	return ok
+}
+
+func findFinding(sc Scan, code string) (Finding, bool) {
+	for _, f := range sc.Findings {
+		if f.Code == code {
+			return f, true
+		}
+	}
+	return Finding{}, false
+}

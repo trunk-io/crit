@@ -77,3 +77,36 @@ func TestNoteStoryNotShared_SilentOnMissingFile(t *testing.T) {
 		t.Fatalf("must be silent on a missing review file, got: %q", out)
 	}
 }
+
+// The graph case matters more than the story case if left unsaid: node
+// comments DO travel with a share, so a recipient would see feedback about
+// functions with no diagram to find them in.
+func TestNoteStoryNotShared_PrintsWhenGraphPresent(t *testing.T) {
+	critPath := filepath.Join(t.TempDir(), "review.json")
+	cj := session.CritJSON{Graph: &session.Graph{
+		Version: 1,
+		Diagram: "flowchart LR\n  a --> b",
+		Nodes:   map[string]session.GraphNode{"a": {Status: session.StatusNew}},
+	}}
+	if err := review.SaveCritJSON(critPath, cj); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStderr(t, func() { noteStoryNotShared(critPath) })
+	if !strings.Contains(out, "call-hierarchy graph is not included") {
+		t.Fatalf("expected a graph notice, got: %q", out)
+	}
+	if !strings.Contains(out, "no diagram") {
+		t.Errorf("the notice should say why it matters: %q", out)
+	}
+}
+
+func TestNoteStoryNotShared_SilentWithoutGraph(t *testing.T) {
+	critPath := filepath.Join(t.TempDir(), "review.json")
+	if err := review.SaveCritJSON(critPath, session.CritJSON{}); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStderr(t, func() { noteStoryNotShared(critPath) })
+	if strings.Contains(out, "call-hierarchy") {
+		t.Fatalf("must be silent when no graph present, got: %q", out)
+	}
+}

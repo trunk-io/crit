@@ -158,6 +158,11 @@ Rules for repairing:
 - `diagram_unparsable_line` is nearly always a node ID containing a dash or a
   dot. Rename it in **both** halves; use the Mermaid label for a display name
   with punctuation.
+- `node_reserved_id` means Mermaid's own grammar refuses that word as an ID
+  (`style`, `class`, `classDef`, `linkStyle`, `click`, `end`, `graph`,
+  `flowchart`, `subgraph`, `href`, `call`). Rename the node and keep the word
+  as its label.
+- `graph_too_large` is the "not an AST" rule firing. Go back to Step 2 and cut.
 - If the JSON itself does not parse you get `graph_unparsable_json` in the same
   shape — same loop, no special case.
 

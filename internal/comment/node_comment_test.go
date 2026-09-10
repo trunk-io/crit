@@ -127,3 +127,30 @@ func TestParseCommentFlagsNode(t *testing.T) {
 		t.Errorf("node = %q", f.node)
 	}
 }
+
+// An empty body reached the review file as an empty comment. The daemon's API
+// rejects one, so the CLI must too.
+func TestAppendNodeCommentRejectsEmptyBody(t *testing.T) {
+	for _, body := range []string{"", "   ", "\n"} {
+		cj := graphCritJSON()
+		if err := appendNodeCommentScoped(cj, "mint", body, "A", "", session.InheritedScope{}); err == nil {
+			t.Errorf("body %q should be rejected", body)
+		}
+		if len(cj.ReviewComments) != 0 {
+			t.Error("nothing may be stored")
+		}
+	}
+}
+
+// --node and --reply-to are two different intents; accepting both silently
+// performed the reply and dropped the --node.
+func TestRunCommentRejectsNodeWithReplyTo(t *testing.T) {
+	f := commentFlags{node: "mint", replyTo: "r_1", args: []string{"body"}}
+	err := resolveCommentFlags(&f)
+	if err == nil {
+		t.Fatal("want rejection")
+	}
+	if !strings.Contains(err.Error(), "--node") || !strings.Contains(err.Error(), "--reply-to") {
+		t.Errorf("the error should name both flags: %v", err)
+	}
+}

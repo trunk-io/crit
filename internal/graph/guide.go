@@ -24,6 +24,7 @@ var diagnosticRemedy = map[string]string{
 	CodeNodeMissingMetadata:  "A node in the diagram has no `nodes` entry, so it would render with no hover card, no copy target, and no color. Add the entry.",
 	CodeNodeOrphanMetadata:   "A `nodes` entry names an ID the diagram never mentions, so nothing would display it. Either draw the node or delete the entry — usually this is a typo in one of the two halves.",
 	CodeNodeBadID:            "Node IDs must match [A-Za-z_][A-Za-z0-9_]*. Rename in both the diagram and the map. Use the `label` field or the Mermaid label for a display name with punctuation.",
+	CodeNodeReservedID:       "Mermaid's own grammar refuses this word as a node ID, so the diagram would fail to render even though everything else validated. The set is `style`, `class`, `classDef`, `linkStyle`, `click`, `end`, `graph`, `flowchart`, `subgraph`, `href`, `call`. Rename the node in both halves, and keep the old word as its label if you want it displayed.",
 	CodeNodeBadStatus:        `"status" must be "existing" (already in the codebase), "new" (net-new in this change), "modified" (exists, changes here), or "external" (a boundary you do not own).`,
 	CodeNodeBadKind:          `"kind" must be "function", "module", or "external". Omit it for an ordinary function.`,
 	CodeNodeMissingSignature: "Every function node needs a signature — it is the body of the hover card. Modules, external nodes, and subgraphs are exempt.",
@@ -41,6 +42,7 @@ var diagnosticRemedy = map[string]string{
 	CodePhaseInvalid:         `"phase" is "plan" (authored before implementation) or "review" (authored after). It only changes which diagnostics are fatal.`,
 	CodeVersionUnsupported:   "Omit `version`, or set it to 1.",
 	CodeTitleMissing:         "A title is what the graph is called in the UI (warning).",
+	CodeGraphTooLarge:        "Past ~40 nodes a call hierarchy stops being readable (warning). Drop narrow helpers, getters, and one-line wrappers, or split the change across more than one graph.",
 }
 
 // Guide returns the full authoring guide: the schema, the accepted Mermaid
@@ -112,7 +114,10 @@ feedback.
 - Node IDs: `)
 	b.WriteString("`[A-Za-z_][A-Za-z0-9_]*`")
 	b.WriteString(` — no dashes (they collide with edge
-  operators), no dots.
+  operators), no dots. Mermaid also reserves `)
+	b.WriteString("`style`, `class`, `classDef`, `linkStyle`, `click`, `end`, `graph`, `flowchart`, `subgraph`, `href`, `call`")
+	b.WriteString(` — its
+  grammar refuses them as node IDs, so rename and keep the word as the label.
 - Labels: any Mermaid shape. Double-quote a label containing brackets.
 - Edges: `)
 	b.WriteString("`-->`, `---`, `-.->`, `==>`, `~~~`")

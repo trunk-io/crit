@@ -7057,12 +7057,15 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   padding: 10px 12px;
 }
 
+/* pointer-events must stay auto: the card carries a copy button, and a
+   pointer-events:none card cannot be clicked at all. crit-graph-view.js keeps
+   it open across the gap with a short grace timer. */
 .crit-graph-hovercard {
   position: fixed;
   z-index: 1200;
   max-width: min(520px, 90vw);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .crit-graph-card-head {
@@ -7079,12 +7082,20 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   color: var(--crit-editor-fg);
 }
 
+/* The filled chips carry white text because their backgrounds are mid-tone in
+   both themes. `external` is deliberately unfilled, so it takes its own hue as
+   text instead — white on transparent was invisible in light mode. */
 .crit-graph-status {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 9px;
   border: 1px solid color-mix(in srgb, var(--crit-editor-fg) 25%, transparent);
   color: var(--crit-fg-on-brand);
+}
+
+.crit-graph-status.crit-graph-status-external {
+  color: var(--crit-graph-slate);
+  border-color: color-mix(in srgb, var(--crit-graph-slate) 55%, transparent);
 }
 
 .crit-graph-signature {
@@ -7218,4 +7229,28 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   padding: 24px;
   text-align: center;
   color: var(--crit-editor-fg-muted);
+}
+
+.crit-graph-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.crit-graph-comment.resolved { opacity: 0.65; }
+
+.crit-graph-comment-resolved {
+  font-size: 10px;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--crit-graph-green) 55%, transparent);
+  color: var(--crit-graph-green);
+}
+
+/* A reply is indented under its parent so a thread reads as a thread. */
+.crit-graph-reply {
+  margin: 6px 0 0 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--crit-border-strong);
 }

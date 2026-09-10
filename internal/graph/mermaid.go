@@ -34,6 +34,21 @@ var forbiddenKeywords = map[string]string{
 	"click":     "the viewer binds its own node interactions; put the path in the node's file/line instead",
 }
 
+// reservedNodeIDs are words Mermaid's own flowchart grammar refuses as a node
+// ID in at least one position — as an edge source, as an edge target, or when
+// declared with a shape. Determined empirically against the vendored Mermaid
+// (11.x) rather than guessed: `click` is legal as a source but not as a
+// target, and `direction`, `LR`, `o` and `x` are all legal despite reading
+// like keywords. A node ID has to work in every position, so the whole set is
+// refused with a rename instruction. Without this check the diagram validates
+// here and then fails in Mermaid's parser at render time, which looks like a
+// crit bug rather than an authoring one.
+var reservedNodeIDs = map[string]bool{
+	"style": true, "class": true, "classDef": true, "linkStyle": true,
+	"click": true, "end": true, "graph": true, "flowchart": true,
+	"subgraph": true, "href": true, "call": true,
+}
+
 // edgeOp matches the flowchart edge operators crit accepts: solid (`--`),
 // thick (`==`), dotted (`-.-`), and invisible (`~~~`), at any length, with an
 // optional `<` head and an optional `>`/`x`/`o` tail.
@@ -234,16 +249,23 @@ func (sc *Scan) scanStatement(line string, lineNo int, seen map[string]int) {
 // statement is unreadable, in which case a finding has already been recorded
 // and the caller must abandon the statement without committing.
 func (sc *Scan) readToken(line string, pos, lineNo int, st *statementScan) (next int, ok bool) {
-	switch c := line[pos]; {
-	case c == ' ' || c == '\t' || c == ';' || c == '&':
+	if c := line[pos]; c == ' ' || c == '\t' || c == ';' || c == '&' {
 		return pos + 1, true
-	default:
 	}
 	if m := edgeOp.FindStringSubmatch(line[pos:]); m != nil {
-		pos = skipEdgeLabel(line, pos+len(m[0]))
+		next, closed := skipEdgeLabel(line, pos+len(m[0]))
+		if !closed {
+			sc.Findings = append(sc.Findings, Finding{
+				Code:    "diagram_unparsable_line",
+				Line:    lineNo,
+				Message: "unterminated edge label in: " + truncate(line, 60),
+				Fix:     "close the edge label with a second `|`, e.g. `a -->|\"on error\"| b`",
+			})
+			return next, false
+		}
 		st.groups = append(st.groups, st.cur)
 		st.cur = []string{}
-		return pos, true
+		return next, true
 	}
 	if id := identRe.FindString(line[pos:]); id != "" {
 		return sc.readNode(line, pos, lineNo, id, st)
@@ -277,6 +299,15 @@ func (sc *Scan) readNode(line string, pos, lineNo int, id string, st *statementS
 			Fix:     `close the bracket, and double-quote any label containing brackets: id["Label"]`,
 		})
 		return pos, false
+	}
+	if reservedNodeIDs[id] {
+		sc.Findings = append(sc.Findings, Finding{
+			Code:    "node_reserved_id",
+			Line:    lineNo,
+			Node:    id,
+			Message: "`" + id + "` is a Mermaid reserved word and cannot be a node ID",
+			Fix:     "rename the node in both the diagram and `nodes` (e.g. `" + id + "Fn`); keep the old text as the node's label if you want it displayed",
+		})
 	}
 	st.cur = append(st.cur, id)
 	st.pending = append(st.pending, ScanNode{ID: id, Line: lineNo, Label: label, HasShape: hasShape})
@@ -373,17 +404,20 @@ func consumeShape(line string, pos int) (end int, label string, ok bool) {
 }
 
 // skipEdgeLabel steps over a `|label|` segment following an edge operator.
-func skipEdgeLabel(line string, pos int) int {
+// ok is false when the label is never closed, which would otherwise swallow
+// the rest of the statement and make the edge's target node vanish with no
+// explanation.
+func skipEdgeLabel(line string, pos int) (next int, ok bool) {
 	for pos < len(line) && (line[pos] == ' ' || line[pos] == '\t') {
 		pos++
 	}
 	if pos >= len(line) || line[pos] != '|' {
-		return pos
+		return pos, true
 	}
 	if idx := strings.IndexByte(line[pos+1:], '|'); idx >= 0 {
-		return pos + 1 + idx + 1
+		return pos + 1 + idx + 1, true
 	}
-	return len(line)
+	return len(line), false
 }
 
 func trimShapeBrackets(s string) string {
@@ -420,16 +454,46 @@ func parseHeader(line string) (string, bool) {
 	return strings.ToUpper(strings.TrimSuffix(fields[1], ";")), true
 }
 
+// forbiddenStatement reports a styling/interaction directive crit rejects.
+//
+// The leading word alone is not enough to decide: `style` and `click` are
+// plausible function names, so `style --> render` is a node statement while
+// `style a fill:#f00` is the directive. The discriminator is what follows the
+// keyword — an edge operator, an `&`, or an immediate shape means the word is
+// being used as a node. Treating those as directives told authors to delete a
+// line that was not one.
 func forbiddenStatement(line string) (kw, why string, bad bool) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return "", "", false
 	}
 	first := strings.ToLower(fields[0])
-	if why, ok := forbiddenKeywords[first]; ok {
-		return fields[0], why, true
+	why, ok := forbiddenKeywords[first]
+	if !ok {
+		return "", "", false
 	}
-	return "", "", false
+	if usedAsNode(line, len(fields[0])) {
+		return "", "", false
+	}
+	return fields[0], why, true
+}
+
+// usedAsNode reports whether the word ending at idx is being used as a node
+// rather than as a directive keyword.
+func usedAsNode(line string, idx int) bool {
+	if idx < len(line) {
+		if _, _, hasShape := consumeShape(line, idx); hasShape {
+			return true
+		}
+	}
+	rest := strings.TrimLeft(line[idx:], " \t")
+	if rest == "" {
+		return false
+	}
+	if strings.HasPrefix(rest, "&") {
+		return true
+	}
+	return edgeOp.MatchString(rest)
 }
 
 func parseSubgraph(line string) (id, label string, ok bool) {

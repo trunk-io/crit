@@ -152,7 +152,38 @@ test('app.js wires the graph transport to the view module', () => {
 });
 
 test('the module exposes the api app.js calls', () => {
-  for (const fn of ['render', 'setHooks', 'setComments', 'selectNode', 'hideHoverCard']) {
+  for (const fn of ['render', 'setHooks', 'setComments', 'selectNode', 'hideHoverCard', 'refreshCommentBadge']) {
     assert.strictEqual(typeof view[fn], 'function', `missing export ${fn}`);
   }
+});
+
+// Posting a comment must not re-run Mermaid: that rebuilds the SVG and throws
+// away the reader's scroll position to change one number.
+test('app.js updates one badge instead of re-rendering after a comment', () => {
+  const app = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  const post = app.slice(app.indexOf('async function postGraphComment'));
+  const body = post.slice(0, post.indexOf('\n  }'));
+  assert.ok(body.includes('refreshCommentBadge'), 'postGraphComment should refresh the badge');
+  assert.ok(!body.includes('renderGraphView()'), 'postGraphComment must not re-render the whole view');
+});
+
+// The hover card carries a copy button, so it cannot be pointer-events:none —
+// the button would be unclickable and the card would hide as you reached it.
+test('the hover card is interactive', () => {
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  const rule = css.slice(css.indexOf('.crit-graph-hovercard {'));
+  const block = rule.slice(0, rule.indexOf('}'));
+  assert.ok(block.includes('pointer-events: auto'), 'hovercard must accept pointer events');
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(src.includes('HOVER_GRACE_MS'), 'a grace period must bridge the node/card gap');
+});
+
+// `external` is the one unfilled status chip, so it needs its own text colour;
+// the shared white-on-fill rule made it invisible in light mode.
+test('the external status chip has its own colour', () => {
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  assert.ok(
+    css.includes('.crit-graph-status.crit-graph-status-external'),
+    'external needs an explicit colour, not the filled-chip default'
+  );
 });

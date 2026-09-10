@@ -8226,21 +8226,14 @@
         console.error('story-updated parse:', err);
       }
       },
-      'graph-updated': function(data) {
-      try {
-        // Envelope: {type, filename, content} where content is JSON {graph:...}.
-        const envelope = data || {};
-        const inner = envelope.content ? JSON.parse(envelope.content) : envelope;
-        graphData = (inner && 'graph' in inner) ? inner.graph : null;
-        // Comments are not in the event payload (a re-ingest does not change
-        // them), so refetch rather than dropping the threads on the floor.
-        loadGraph();
-        // A fresh ingest surfaces the view: the author just asked for it.
-        if (graphData) setGraphVisible(true);
-        else setGraphVisible(false);
-      } catch (err) {
-        console.error('graph-updated parse:', err);
-      }
+      'graph-updated': function() {
+      // The event payload carries the new graph, but not its comments, and a
+      // stale comment map would drop live threads from the view — so refetch
+      // and let the response be the single source of truth rather than
+      // half-applying the envelope and then racing the fetch that follows it.
+      // forceShow surfaces the view because a fresh ingest is someone asking
+      // to see it.
+      loadGraph(true);
       },
       'server-shutdown': function() {
       conn.close();
@@ -8511,7 +8504,11 @@
     return !!(graphData && graphData.diagram);
   }
 
-  async function loadGraph() {
+  // loadGraph returns its promise so a caller can act on the fetched state
+  // instead of racing it. forceShow surfaces the view once the graph is in
+  // hand, which is what a fresh ingest wants — deciding before the fetch
+  // resolved meant reading state the fetch was about to overwrite.
+  async function loadGraph(forceShow) {
     try {
       const res = await fetch('/api/graph');
       if (res.status === 204) {
@@ -8524,6 +8521,11 @@
       }
     } catch {
       // A missing graph is the common case, not an error worth surfacing.
+    }
+    if (forceShow) {
+      // setGraphVisible renders, so don't also render below.
+      setGraphVisible(graphViewAvailable());
+      return;
     }
     updateGraphViewToggle();
     if (graphVisible) renderGraphView();
@@ -8578,9 +8580,7 @@
     const comment = await res.json();
     (graphComments[nodeId] = graphComments[nodeId] || []).push(comment);
     window.crit.graphView.setComments(graphComments);
-    // Re-render so the node's comment count badge updates too.
-    renderGraphView();
-    window.crit.graphView.selectNode(nodeId);
+    window.crit.graphView.refreshCommentBadge(nodeId);
     return comment;
   }
 

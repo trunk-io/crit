@@ -311,10 +311,22 @@ func composeReviewBody(message string, reserved []scopedComment) string {
 	}
 	for _, sc := range reserved {
 		if body := strings.TrimSpace(sc.Comment.Body); body != "" {
-			parts = append(parts, body)
+			parts = append(parts, prefixNodeComment(sc.Comment.NodeID, body))
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// prefixNodeComment names the call-hierarchy node a comment was left on.
+// A node comment carries no file or line, so pushed bare it reaches the pull
+// request as a question about nothing — the reviewer's "where does the signing
+// key come from?" with no clue which function they meant. The graph is not
+// visible on GitHub, so the node name is the only context there is.
+func prefixNodeComment(nodeID, body string) string {
+	if nodeID == "" {
+		return body
+	}
+	return "**`" + nodeID + "`** — " + body
 }
 
 // writeDryRunLine appends one comment line to the dry-run output. Body is

@@ -267,3 +267,43 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 	return out.String()
 }
+
+// Silently validating one file and ignoring the other is the same class of
+// bug as accepting --node alongside --reply-to: two different intents, one
+// of them dropped without a word.
+func TestParseGraphFlagsRejectsCheckPlusPositional(t *testing.T) {
+	_, err := parseGraphFlags([]string{"--check", "a.json", "b.json"})
+	if err == nil {
+		t.Fatal("want rejection: --check and a bare path are two different operations")
+	}
+	if !strings.Contains(err.Error(), "a.json") || !strings.Contains(err.Error(), "b.json") {
+		t.Errorf("the error should name both files: %v", err)
+	}
+}
+
+// Both summaries and the check line must report the same shape for the same
+// graph. They printed different figures under the same word "nodes" before:
+// the diagram's call nodes in one place, call nodes plus modules in the other.
+func TestDescribeGraphShapeCountsModulesSeparately(t *testing.T) {
+	d := &session.GraphDiagnostics{Stats: session.GraphStats{Nodes: 3, Modules: 1, Edges: 2}}
+	got := describeGraphShape(d)
+	if got != "3 nodes, 1 module, 2 edges" {
+		t.Errorf("describeGraphShape = %q", got)
+	}
+	// No modules: the clause is omitted rather than printed as zero.
+	bare := describeGraphShape(&session.GraphDiagnostics{Stats: session.GraphStats{Nodes: 1, Edges: 0}})
+	if bare != "1 node, 0 edges" {
+		t.Errorf("describeGraphShape = %q", bare)
+	}
+}
+
+func TestCountLabelPluralizes(t *testing.T) {
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{{0, "0 nodes"}, {1, "1 node"}, {2, "2 nodes"}} {
+		if got := countLabel(tc.n, "node"); got != tc.want {
+			t.Errorf("countLabel(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}

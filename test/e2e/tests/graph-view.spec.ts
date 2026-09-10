@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { loadPage } from './helpers';
+import { clearAllComments, loadPage } from './helpers';
 
 // A graph whose node IDs, statuses, and badges are all distinct, so an
 // assertion can tell them apart in the rendered SVG.
@@ -56,6 +56,9 @@ async function clearGraph(request: APIRequestContext) {
 
 test.describe('Call-hierarchy graph view', () => {
   test.beforeEach(async ({ request, page }) => {
+    // Node comments live in the review-comment store and survive a graph
+    // clear by design, so they leak between tests unless each starts clean.
+    await clearAllComments(request);
     await seedGraph(request);
     await loadPage(page);
     await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
@@ -169,6 +172,7 @@ test.describe('Call-hierarchy graph view', () => {
     await panel.locator('textarea').fill('Where does the signing key come from?');
     await panel.locator('.crit-graph-comment-form button[type="submit"]').click();
 
+    await expect(panel.locator('.crit-graph-comment')).toHaveCount(1);
     await expect(panel.locator('.crit-graph-comment-body')).toContainText('signing key');
     // The node itself gains a count badge, so a returning reviewer can see
     // where the conversation is without opening every node.
@@ -180,6 +184,48 @@ test.describe('Call-hierarchy graph view', () => {
     await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
     await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
     await expect(page.locator('#graphNodePanel .crit-graph-comment-body')).toContainText('signing key');
+  });
+
+  // The copy button lives in the hover card too, and the card sits in a gap
+  // away from the node — without a grace period, reaching for the button
+  // dismissed the card, making it dead UI.
+  test('the hover card survives the pointer moving onto it', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'handleReq' }).first().hover();
+    const copy = page.locator('.crit-graph-hovercard .crit-graph-copy');
+    await expect(copy).toBeVisible();
+    await copy.hover();
+    await expect(page.locator('.crit-graph-hovercard')).toBeVisible();
+    await copy.click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('src/edge/handler.ts:42');
+  });
+
+  // The visible half of the round trip: a reviewer asks on a node, the agent
+  // answers with `crit comment --reply-to`, and the answer has to appear here
+  // or the loop is invisible from the browser.
+  test('a reply to a node comment is shown in the panel', async ({ page }) => {
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
+    const panel = page.locator('#graphNodePanel');
+    await panel.locator('textarea').fill('Where does the signing key come from?');
+    await panel.locator('.crit-graph-comment-form button[type="submit"]').click();
+    await expect(panel.locator('.crit-graph-comment')).toHaveCount(1);
+    await expect(panel.locator('.crit-graph-comment-body')).toHaveText('Where does the signing key come from?');
+
+    const id = await page.evaluate(() => {
+      const s = (window as any).crit.graphView._state;
+      return s.comments.mintToken[s.comments.mintToken.length - 1].id;
+    });
+    const res = await page.request.post(`/api/review-comment/${id}/replies`, {
+      data: { body: 'It comes from the KMS alias.', author: 'Claude Code' },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+
+    await loadPage(page);
+    await page.locator('#graphViewToggle .toggle-btn[data-graph-view="graph"]').click();
+    await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
+    const reply = page.locator('#graphNodePanel .crit-graph-reply');
+    await expect(reply).toHaveCount(1);
+    await expect(reply).toContainText('KMS alias');
   });
 
   test('drift and warnings from the ingest are shown to the reviewer', async ({ request, page }) => {

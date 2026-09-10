@@ -24,6 +24,7 @@ const (
 	CodeNodeMissingMetadata  = "node_missing_metadata"
 	CodeNodeOrphanMetadata   = "node_orphan_metadata"
 	CodeNodeBadID            = "node_bad_id"
+	CodeNodeReservedID       = "node_reserved_id"
 	CodeNodeBadStatus        = "node_bad_status"
 	CodeNodeBadKind          = "node_bad_kind"
 	CodeNodeMissingSignature = "node_missing_signature"
@@ -41,10 +42,17 @@ const (
 	CodePhaseInvalid         = "phase_invalid"
 	CodeVersionUnsupported   = "version_unsupported"
 	CodeTitleMissing         = "title_missing"
+	CodeGraphTooLarge        = "graph_too_large"
 )
 
 // Version is the only graph schema version crit accepts.
 const Version = 1
+
+// maxReadableNodes is where a call hierarchy stops being one. The guide asks
+// for the 8-25 functions that carry a change; this sits well above that so it
+// never nags a legitimately large graph, and only fires on what is effectively
+// an AST dump. A warning, not an error — the author may have a real reason.
+const maxReadableNodes = 40
 
 var validStatuses = map[string]bool{
 	session.StatusExisting: true,
@@ -134,6 +142,14 @@ func Validate(g *session.Graph) *session.GraphDiagnostics {
 			Code: CodeNodesEmpty, Severity: session.SeverityError,
 			Message: "`nodes` is empty",
 			Fix:     "add one entry per diagram node, keyed by its node ID",
+		})
+	}
+
+	if len(scan.Nodes) > maxReadableNodes {
+		add(d, session.GraphDiagnostic{
+			Code: CodeGraphTooLarge, Severity: session.SeverityWarning,
+			Message: fmt.Sprintf("the diagram has %d nodes, past the point a reader follows one", len(scan.Nodes)),
+			Fix:     "this is a call hierarchy, not an AST — drop narrow helpers, getters, and one-line wrappers, or split the change into more than one graph",
 		})
 	}
 

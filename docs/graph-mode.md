@@ -139,6 +139,24 @@ A comment naming a node the current graph does not contain is refused — that i
 feedback nobody could act on. The refusal lists the graph's real node IDs, so a
 typo is a one-round fix.
 
+Node comments **survive** `crit graph --clear` and a re-ingest, because node IDs
+are stable across authorings by design — clearing and re-ingesting restores
+every thread. The consequence is that renaming a node detaches its
+conversation, so an ingest whose drift drops a commented node says so:
+
+```text
+Warning: 3 comments on "mintToken", which this graph no longer contains — restore the node ID or move the feedback.
+```
+
+Two limits worth knowing:
+
+- `crit push` puts a reserved node comment in the GitHub review body prefixed
+  with the node name (**`mintToken`** — …), since the graph is not visible on
+  GitHub and the comment carries no file or line of its own.
+- `crit share` does not publish the graph yet, and says so. Node comments *are*
+  shared, so a recipient would otherwise see feedback about functions with no
+  diagram to find them in.
+
 An agent can author node comments too, which is what multi-agent review flows
 need:
 
@@ -191,3 +209,11 @@ consequences are worth knowing:
   indistinguishable from an edge operator mid-statement, and a dot breaks the
   DOM keying the viewer does. Use the Mermaid label, or the `label` field, for
   a display name with punctuation.
+- **Mermaid reserves some words as node IDs**: `style`, `class`, `classDef`,
+  `linkStyle`, `click`, `end`, `graph`, `flowchart`, `subgraph`, `href`,
+  `call`. Its grammar refuses them, so crit refuses them too rather than
+  letting the diagram validate and then fail to render. `direction`, `LR` and
+  `x` read like keywords but are legal, so they are allowed — the set was
+  determined against the vendored Mermaid, not guessed.
+- **Past ~40 nodes crit warns.** It is a call hierarchy, not an AST; the
+  warning is the constraint made mechanical rather than left in prose.

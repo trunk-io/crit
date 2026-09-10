@@ -258,6 +258,29 @@
     return card;
   }
 
+  // buildCommentThread renders one comment and its replies. Replies are the
+  // half that makes the loop visible: a reviewer asks a question on a node, the
+  // agent answers with `crit comment --reply-to`, and without this the answer
+  // existed in the review file but appeared nowhere in the graph view.
+  function buildCommentThread(c) {
+    var wrap = el('div', 'crit-graph-comment');
+    if (c.resolved) wrap.classList.add('resolved');
+
+    var head = el('div', 'crit-graph-comment-head');
+    head.appendChild(el('span', 'crit-graph-comment-author', c.author || 'Reviewer'));
+    if (c.resolved) head.appendChild(el('span', 'crit-graph-comment-resolved', 'resolved'));
+    wrap.appendChild(head);
+    wrap.appendChild(el('div', 'crit-graph-comment-body', c.body || ''));
+
+    (c.replies || []).forEach(function (r) {
+      var reply = el('div', 'crit-graph-reply');
+      reply.appendChild(el('span', 'crit-graph-comment-author', r.author || 'Reply'));
+      reply.appendChild(el('div', 'crit-graph-comment-body', r.body || ''));
+      wrap.appendChild(reply);
+    });
+    return wrap;
+  }
+
   // ===== Badge markers inside the SVG node =====
 
   var MARKER_SIZE = 7;
@@ -267,15 +290,9 @@
   // <g>, below its shape. Being inside the node's group is the whole trick:
   // the markers inherit its transform, so pan, zoom, and the detached
   // fullscreen clone all carry them with no repositioning.
-  function attachBadgeMarkers(nodeEl, badges) {
-    if (!badges.length || !nodeEl.getBBox) return;
+  function attachBadgeMarkers(nodeEl, badges, box) {
+    if (!badges.length || !box) return;
     if (nodeEl.querySelector('.crit-graph-marker-row')) return;
-    var box;
-    try {
-      box = nodeEl.getBBox();
-    } catch (e) {
-      return;
-    }
     var group = svgEl('g');
     group.setAttribute('class', 'crit-graph-marker-row');
     var totalWidth = badges.length * MARKER_SIZE + (badges.length - 1) * MARKER_GAP;
@@ -295,6 +312,24 @@
       group.appendChild(rect);
     });
     nodeEl.appendChild(group);
+  }
+
+  // shapeBox measures a node's own shape, not its <g>. Measuring the group
+  // made decoration order load-bearing — every appended badge grew the box the
+  // next one measured, so the comment badge's anchor drifted with the badge
+  // count. The shape element never changes, so positioning off it is
+  // order-independent by construction and safe to recompute at any time.
+  var SHAPE_SELECTOR = '.label-container, rect, polygon, circle, ellipse, path';
+
+  function shapeBox(nodeEl) {
+    var shape = nodeEl.querySelector && nodeEl.querySelector(SHAPE_SELECTOR);
+    var target = shape || nodeEl;
+    if (!target.getBBox) return null;
+    try {
+      return target.getBBox();
+    } catch (e) {
+      return null;
+    }
   }
 
   // ===== The view =====
@@ -319,16 +354,10 @@
   // attachCommentBadge marks a node that already carries feedback, so a
   // reviewer returning to a graph can see where the conversation is without
   // opening every node.
-  function attachCommentBadge(nodeEl, id) {
+  function attachCommentBadge(nodeEl, id, box) {
     var n = commentsFor(id).length;
-    if (!n || !nodeEl.getBBox) return;
+    if (!n || !box) return;
     if (nodeEl.querySelector('.crit-graph-comment-badge')) return;
-    var box;
-    try {
-      box = nodeEl.getBBox();
-    } catch (e) {
-      return;
-    }
     var group = svgEl('g');
     group.setAttribute('class', 'crit-graph-comment-badge');
     if (unresolvedCount(id) > 0) group.setAttribute('data-unresolved', 'true');
@@ -347,12 +376,33 @@
     nodeEl.appendChild(group);
   }
 
+  // HOVER_GRACE_MS bridges the gap between the node and its card. Without it
+  // the card is unusable rather than merely awkward: it carries a copy button,
+  // and reaching for the button leaves the node, which dismissed the card.
+  var HOVER_GRACE_MS = 220;
+  var hoverHideTimer = null;
+
+  function cancelHoverHide() {
+    if (hoverHideTimer) {
+      clearTimeout(hoverHideTimer);
+      hoverHideTimer = null;
+    }
+  }
+
+  function scheduleHoverHide() {
+    cancelHoverHide();
+    hoverHideTimer = setTimeout(hideHoverCard, HOVER_GRACE_MS);
+  }
+
   function showHoverCard(nodeEl, id) {
+    cancelHoverHide();
     hideHoverCard();
     var node = (state.graph.nodes || {})[id];
     if (!node) return;
     var card = buildNodeCard(state.graph, id, node);
     card.classList.add('crit-graph-hovercard');
+    card.addEventListener('mouseenter', cancelHoverHide);
+    card.addEventListener('mouseleave', hideHoverCard);
     document.body.appendChild(card);
     var rect = nodeEl.getBoundingClientRect();
     var cardRect = card.getBoundingClientRect();
@@ -372,6 +422,7 @@
   }
 
   function hideHoverCard() {
+    cancelHoverHide();
     if (state.hoverCard && state.hoverCard.parentNode) {
       state.hoverCard.parentNode.removeChild(state.hoverCard);
     }
@@ -394,13 +445,14 @@
       nodeEl.setAttribute('role', 'button');
       nodeEl.setAttribute('aria-label', id + ' — ' + statusLabel(node.status));
 
-      attachBadgeMarkers(nodeEl, badgesFor(state.graph, node));
-      attachCommentBadge(nodeEl, id);
+      var box = shapeBox(nodeEl);
+      attachBadgeMarkers(nodeEl, badgesFor(state.graph, node), box);
+      attachCommentBadge(nodeEl, id, box);
 
       nodeEl.addEventListener('mouseenter', function () {
         showHoverCard(nodeEl, id);
       });
-      nodeEl.addEventListener('mouseleave', hideHoverCard);
+      nodeEl.addEventListener('mouseleave', scheduleHoverHide);
       nodeEl.addEventListener('focus', function () {
         showHoverCard(nodeEl, id);
       });
@@ -423,6 +475,20 @@
   function selectNode(id) {
     state.selected = id;
     renderPanel();
+  }
+
+  // refreshCommentBadge updates one node's badge in place. Re-rendering the
+  // whole view to reflect a new comment would re-run Mermaid, rebuilding the
+  // SVG and throwing away the reader's scroll position — an expensive way to
+  // change one number.
+  function refreshCommentBadge(nodeID) {
+    var nodes = document.querySelectorAll('.crit-graph-diagram g.node, .crit-graph-diagram g.cluster');
+    Array.prototype.forEach.call(nodes, function (nodeEl) {
+      if (nodeIdFromElement(nodeEl) !== nodeID) return;
+      var existing = nodeEl.querySelector('.crit-graph-comment-badge');
+      if (existing) existing.parentNode.removeChild(existing);
+      attachCommentBadge(nodeEl, nodeID, shapeBox(nodeEl));
+    });
   }
 
   var hooks = {
@@ -471,10 +537,7 @@
             return;
           }
         }
-        var fallback = el('div', 'crit-graph-comment');
-        fallback.appendChild(el('div', 'crit-graph-comment-author', c.author || 'Reviewer'));
-        fallback.appendChild(el('div', 'crit-graph-comment-body', c.body || ''));
-        thread.appendChild(fallback);
+        thread.appendChild(buildCommentThread(c));
       });
     }
     panel.appendChild(thread);
@@ -664,6 +727,7 @@
     render: render,
     renderPanel: renderPanel,
     selectNode: selectNode,
+    refreshCommentBadge: refreshCommentBadge,
     setHooks: setHooks,
     setComments: setComments,
     hideHoverCard: hideHoverCard,

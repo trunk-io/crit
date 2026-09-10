@@ -97,6 +97,9 @@ func resolveCommentFlags(f *commentFlags) error {
 	if f.json && f.replyTo != "" {
 		return fmt.Errorf("--json and --reply-to cannot be used together; for a single reply use: crit comment --reply-to <id> [--author <name>] <body>")
 	}
+	if f.node != "" && f.replyTo != "" {
+		return fmt.Errorf("--node and --reply-to cannot be used together: --node starts a new thread on a graph node, --reply-to answers an existing comment")
+	}
 	cfg, err := config.LoadCurrentConfig()
 	if err != nil {
 		return err

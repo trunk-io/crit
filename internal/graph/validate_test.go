@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -56,12 +57,12 @@ func TestGuideDocumentsEveryCode(t *testing.T) {
 		CodeDiagramEmpty, CodeDiagramMissingHeader, CodeDiagramBadDirection,
 		CodeDiagramForbidden, CodeDiagramUnparsable, CodeDiagramUnbalanced,
 		CodeDiagramNoNodes, CodeNodesEmpty, CodeNodeMissingMetadata,
-		CodeNodeOrphanMetadata, CodeNodeBadID, CodeNodeBadStatus, CodeNodeBadKind,
+		CodeNodeOrphanMetadata, CodeNodeBadID, CodeNodeReservedID, CodeNodeBadStatus, CodeNodeBadKind,
 		CodeNodeMissingSignature, CodeNodeMissingFile, CodeNodeMissingLine,
 		CodeNodeAbsolutePath, CodeNodeIsolated, CodeBadgeUnknown, CodeBadgeBadColor,
 		CodeBadgeDuplicateID, CodeBadgeMissingLabel, CodeBadgeUnused,
 		CodeSubgraphNoMetadata, CodeSubgraphWrongKind, CodePhaseInvalid,
-		CodeVersionUnsupported, CodeTitleMissing,
+		CodeVersionUnsupported, CodeTitleMissing, CodeGraphTooLarge,
 	}
 	guide := Guide()
 	for _, c := range emitted {
@@ -329,5 +330,56 @@ func TestValidateNilGraph(t *testing.T) {
 	}
 	if len(d.Items) == 0 || d.Items[0].Fix == "" {
 		t.Error("nil graph must produce an actionable diagnostic")
+	}
+}
+
+// "A call hierarchy, not an AST" is the constraint authors most often break,
+// so it is checked mechanically rather than only stated in the guide. It must
+// stay a warning: an author may have a real reason for a big graph.
+func TestValidateWarnsOnAnUnreadablyLargeGraph(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	nodes := map[string]session.GraphNode{}
+	for i := 0; i < maxReadableNodes+2; i++ {
+		id := fmt.Sprintf("fn%d", i)
+		if i > 0 {
+			fmt.Fprintf(&b, "  fn%d --> fn%d\n", i-1, i)
+		}
+		nodes[id] = session.GraphNode{
+			Signature: id + "()", File: "src/a.ts", Line: i + 1, Status: session.StatusNew,
+		}
+	}
+	g := &session.Graph{Title: "big", Diagram: b.String(), Nodes: nodes}
+
+	d := Validate(g)
+	it := findCode(t, d, CodeGraphTooLarge)
+	if it.Severity != session.SeverityWarning {
+		t.Errorf("severity = %s, want warning", it.Severity)
+	}
+	if !strings.Contains(it.Fix, "AST") {
+		t.Errorf("the fix should name the actual constraint: %q", it.Fix)
+	}
+	if !d.OK {
+		t.Errorf("an oversized graph must still save: %v", d.Items)
+	}
+}
+
+// And it must not fire on a graph inside the recommended range.
+func TestValidateDoesNotWarnOnANormalGraph(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("flowchart LR\n")
+	nodes := map[string]session.GraphNode{}
+	for i := 0; i < 25; i++ {
+		id := fmt.Sprintf("fn%d", i)
+		if i > 0 {
+			fmt.Fprintf(&b, "  fn%d --> fn%d\n", i-1, i)
+		}
+		nodes[id] = session.GraphNode{
+			Signature: id + "()", File: "src/a.ts", Line: i + 1, Status: session.StatusNew,
+		}
+	}
+	g := &session.Graph{Title: "normal", Diagram: b.String(), Nodes: nodes}
+	if hasCode(Validate(g), CodeGraphTooLarge) {
+		t.Error("25 nodes is within the recommended range and must not warn")
 	}
 }

@@ -122,6 +122,11 @@ func parseGraphFlags(args []string) (graphFlags, error) {
 	if f.phase != "" && f.phase != session.PhasePlan && f.phase != session.PhaseReview {
 		return f, clicmd.ExitError{Code: 1, Err: fmt.Errorf("--phase must be %q or %q", session.PhasePlan, session.PhaseReview)}
 	}
+	if f.check != "" && f.graphFile != "" {
+		return f, clicmd.ExitError{Code: 1, Err: fmt.Errorf(
+			"--check %s and %s are two different graphs: --check validates without saving, a bare path ingests — pass one",
+			f.check, f.graphFile)}
+	}
 	return f, nil
 }
 
@@ -193,8 +198,8 @@ func runGraphCheck(f graphFlags) error {
 	if !d.OK {
 		return clicmd.ExitError{Code: 1, Err: fmt.Errorf("graph has %d error(s)", d.Errors)}
 	}
-	fmt.Fprintf(os.Stderr, "Graph is valid (%d nodes, %d edges, %d warning(s)).\n",
-		d.Stats.Nodes, d.Stats.Edges, d.Warnings)
+	fmt.Fprintf(os.Stderr, "Graph is valid: %s, %s.\n",
+		describeGraphShape(d), countLabel(d.Warnings, "warning"))
 	return nil
 }
 
@@ -228,11 +233,54 @@ func runGraphIngest(f graphFlags, critPath string, cj review.CritJSON) error {
 	if err := review.SaveCritJSON(critPath, cj); err != nil {
 		return clicmd.ExitError{Code: 1, Err: err}
 	}
+	warnOrphanedNodeComments(cj, res.Diagnostics)
 	printGraphSaved(res.Diagnostics)
 	return nil
 }
 
+// warnOrphanedNodeComments reports threads left behind by a node this ingest
+// dropped. The drift report already names the removal; what makes it
+// actionable is that feedback was attached to it — a rename in the diagram
+// silently detaches the conversation it was about.
+func warnOrphanedNodeComments(cj review.CritJSON, d *session.GraphDiagnostics) {
+	if d == nil || d.Drift == nil || len(d.Drift.Removed) == 0 {
+		return
+	}
+	counts := map[string]int{}
+	for _, c := range cj.ReviewComments {
+		if c.NodeID != "" {
+			counts[c.NodeID]++
+		}
+	}
+	for _, id := range d.Drift.Removed {
+		if n := counts[id]; n > 0 {
+			fmt.Fprintf(os.Stderr,
+				"Warning: %s on %q, which this graph no longer contains — restore the node ID or move the feedback.\n",
+				countLabel(n, "comment"), id)
+		}
+	}
+}
+
+func countNodeComments(cj review.CritJSON) int {
+	n := 0
+	for _, c := range cj.ReviewComments {
+		if c.NodeID != "" {
+			n++
+		}
+	}
+	return n
+}
+
 func clearGraph(f graphFlags, critPath string, cj review.CritJSON) error {
+	// Node comments are deliberately kept: node IDs are stable across
+	// re-authoring by design, so a clear-then-reingest restores every thread.
+	// But while no graph exists they are listed by `crit comments` and shown
+	// nowhere, so say so rather than leaving the reviewer to discover it.
+	if n := countNodeComments(cj); n > 0 {
+		fmt.Fprintf(os.Stderr,
+			"Note: %s kept but now unattached — they reappear if you ingest a graph containing those nodes.\n",
+			countLabel(n, "node comment"))
+	}
 	if key, keyErr := graphReviewSessionKey(f); keyErr == nil {
 		if entry, alive := graphDaemonAlive(key); alive {
 			if err := graphDeleteGraph(entry); err == nil {

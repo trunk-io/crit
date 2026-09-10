@@ -206,9 +206,11 @@ func printQR(url string, showQR bool) {
 }
 
 // noteStoryNotShared prints a one-line notice (spec §10 "crit share interplay")
-// when the review has a story: crit-web has no story surface yet, so a shared
-// review silently lacks it. Best-effort — a missing/unreadable review file is
-// not an error here.
+// when the review has a story or a graph: crit-web has no surface for either
+// yet, so a shared review silently lacks it. The graph case is worse than the
+// story case if left unsaid — node comments DO travel with the share, so a
+// recipient would see feedback about functions with no diagram to find them
+// in. Best-effort — a missing/unreadable review file is not an error here.
 func noteStoryNotShared(critPath string) {
 	cj, err := review.LoadCritJSON(critPath)
 	if err != nil {
@@ -216,6 +218,9 @@ func noteStoryNotShared(critPath string) {
 	}
 	if cj.Story != nil {
 		fmt.Fprintln(os.Stderr, "note: the story is not included in the shared view (crit-web story support is planned)")
+	}
+	if cj.Graph != nil {
+		fmt.Fprintln(os.Stderr, "note: the call-hierarchy graph is not included in the shared view; comments on its nodes are shared but will have no diagram to point at")
 	}
 }
 
