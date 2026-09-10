@@ -195,6 +195,12 @@ type Comment struct {
 	// comments and for any legacy live pin lacking a number.
 	PinNumber int `json:"pin_number,omitempty"`
 
+	// NodeID is non-empty iff this comment is anchored to a graph node, in
+	// which case Scope is "node". Keying on the node ID rather than on the
+	// diagram text or a DOM selector is what lets the diagram be re-authored
+	// between the planning and review phases without orphaning feedback.
+	NodeID string `json:"node_id,omitempty"`
+
 	// FocusKey identifies the *view* this comment was authored in.
 	// Comments are visible only when the current focus's key matches.
 	//   ""                            — working-tree / pre-feature
@@ -1377,6 +1383,58 @@ func (s *Session) AddReviewComment(body, author, userID string) Comment {
 	return c
 }
 
+// AddGraphComment adds a comment anchored to a graph node. Node comments live
+// in the same store as review-level comments — and therefore inherit
+// threading, resolution, review rounds, `crit comments`, and the
+// reserve-for-GitHub path unchanged — distinguished only by NodeID and the
+// "node" scope. ok is false when the node is not in the current graph: a
+// comment on a node nobody can see is feedback the agent cannot act on, so it
+// is refused at the door rather than stored and later puzzled over.
+func (s *Session) AddGraphComment(nodeID, body, author, userID string) (Comment, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.graph == nil {
+		return Comment{}, false
+	}
+	if _, ok := s.graph.Nodes[nodeID]; !ok {
+		return Comment{}, false
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	c := StampWithFocus(Comment{
+		ID:          randomReviewCommentID(),
+		Body:        body,
+		Author:      author,
+		UserID:      userID,
+		Scope:       "node",
+		NodeID:      nodeID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		ReviewRound: s.ReviewRound,
+	}, s.Focus)
+	s.reviewComments = append(s.reviewComments, c)
+	s.scheduleWrite()
+	return c, true
+}
+
+// GetGraphComments returns the node-anchored comments visible in the current
+// focus, keyed by node ID for the viewer.
+func (s *Session) GetGraphComments() map[string][]Comment {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := map[string][]Comment{}
+	focusKey := focusKeyFor(s.Focus)
+	for _, c := range s.reviewComments {
+		if c.NodeID == "" {
+			continue
+		}
+		if !visibleInFocusKey(c, focusKey, s.Focus) {
+			continue
+		}
+		out[c.NodeID] = append(out[c.NodeID], c)
+	}
+	return out
+}
+
 // GetReviewComments returns a copy of all review-level comments visible
 // in the current focus, with staleness annotated.
 func (s *Session) GetReviewComments() []Comment {
@@ -1386,6 +1444,11 @@ func (s *Session) GetReviewComments() []Comment {
 	seen := make(map[string]struct{}, len(s.reviewComments))
 	focusKey := focusKeyFor(s.Focus)
 	for _, c := range s.reviewComments {
+		// Node-anchored comments share this store but belong to the graph
+		// view; returning them here would render every one twice.
+		if c.NodeID != "" {
+			continue
+		}
 		if !visibleInFocusKey(c, focusKey, s.Focus) {
 			continue
 		}

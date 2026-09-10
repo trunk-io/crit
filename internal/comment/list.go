@@ -31,6 +31,9 @@ func commentScope(c Comment) string {
 	if c.Scope == "review" {
 		return "review"
 	}
+	if c.Scope == "node" {
+		return "node"
+	}
 	if c.Scope == "file" {
 		return "file"
 	}
@@ -40,6 +43,9 @@ func commentScope(c Comment) string {
 func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment {
 	var out []ListedComment
 
+	// Node-anchored graph comments share the review-comment store, so they are
+	// listed here too — with scope "node" and the node ID in the header, which
+	// is how an agent knows which function the feedback is about.
 	for _, c := range cj.ReviewComments {
 		if unresolvedOnly && !isUnresolved(c) {
 			continue
@@ -47,7 +53,7 @@ func listCommentsFromCritJSON(cj CritJSON, unresolvedOnly bool) []ListedComment 
 		if !agentFacing(c) {
 			continue
 		}
-		out = append(out, toListedComment("review", "", c))
+		out = append(out, toListedComment(commentScope(c), "", c))
 	}
 
 	paths := make([]string, 0, len(cj.Files))
@@ -155,6 +161,9 @@ func formatCommentHeader(e ListedComment) string {
 	header := fmt.Sprintf("[%s] %s", e.ID, e.Scope)
 	if e.PinNumber > 0 {
 		header = fmt.Sprintf("[%s pin #%d] %s", e.ID, e.PinNumber, e.Scope)
+	}
+	if e.NodeID != "" {
+		header += " " + e.NodeID
 	}
 	if e.Path != nil {
 		header += " " + *e.Path
