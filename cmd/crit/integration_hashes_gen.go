@@ -10,7 +10,7 @@ var integrationHashes = map[string]string{
 	"integrations/claude-code/.claude-plugin/plugin.json":        "5f41c1cc9c8f608910f6d91ca32c4b2ac70c5979ae43ceef04648dbd761c5916",
 	"integrations/claude-code/hooks/hooks.json":                  "beba2c8bd252637ff31b57ed868e4d56135e1a3f429f872befbd2d34b834512b",
 	"integrations/claude-code/skills/crit-cli/SKILL.md":          "d1d5e1eb11f03c5faea995a0c1adf7433895fc2fdbade51588e789c564da1eb0",
-	"integrations/claude-code/skills/crit-graph/SKILL.md":        "533ae05564c53805748815f5d271d32e421cd0f7e784c7fe7c07905bd2e15681",
+	"integrations/claude-code/skills/crit-graph/SKILL.md":        "47f9886535e79cbc13a999406c05b034765c64af83ee1d3fda5ea5e464bfd584",
 	"integrations/claude-code/skills/crit-story/SKILL.md":        "90b679cc983c35c22be0125a354278a3dfc5826cb53c340b85d476e5afdecb88",
 	"integrations/claude-code/skills/crit/SKILL.md":              "b14ecc0ef268c6703e214ca450acb9f8fd4e3c73f1fed5b697731cc959eccf0d",
 	"integrations/cline/crit-story.md":                           "c27cd0c5405a3eec08c02997379d80230369443e0f896f892fab697c423b12b0",

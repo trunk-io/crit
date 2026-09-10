@@ -121,7 +121,17 @@ zero warnings. Starting there is the cheapest way to avoid the loop entirely.
 
 ## Commenting on a function
 
-In the browser, open the **Graph** toggle and click any node. The panel shows
+`crit graph <file>` and a bare `crit graph` both start the review daemon if one
+is not already running and open the browser on `#graph`, so the reader lands on
+the diagram rather than having to find the toggle. That spawn deliberately
+bypasses the "No changed files" preflight a bare `crit` applies: a graph is
+something to show on its own, and in `plan` phase it is routinely the only
+thing in the review, authored before any of the code exists. `--no-open` starts
+the daemon without a browser.
+
+In the browser, the **Graph** toggle switches between the diagram and the
+files, and keeps the `#graph` fragment in step so a copied URL reopens the same
+view. Click any node. The panel shows
 its signature, its `file:line` with a copy button, its badges, and its comment
 thread.
 
@@ -175,7 +185,7 @@ echo '[{"node": "handler", "body": "…"}]' | crit comment --json --author 'Agen
 | `crit graph <file>` | Validate, save, and show the graph |
 | `crit graph --phase review <file>` | Re-author after implementing; reports drift |
 | `crit graph --plan <slug> <file>` | Attach to a stored plan review |
-| `crit graph` | Report what is stored |
+| `crit graph` | Reopen the stored graph in the browser |
 | `crit graph --clear` | Remove the graph from the review |
 | `crit comment --node <id> <body>` | Comment on a node from the CLI |
 

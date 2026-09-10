@@ -178,7 +178,9 @@ Do not proceed until `--check` exits 0.
 crit graph --phase plan /tmp/crit-graph.json      # or --phase review
 ```
 
-Exit 0 saves it and the graph appears in the review under the **Graph** toggle.
+Exit 0 saves it, starts the review daemon if one is not running, and opens the
+browser on `#graph` so the reader lands on the diagram. Pass `--no-open` in a
+headless context.
 On a re-author, the summary reports drift against the previous graph
 (`+n/-n`, status changes) — that is the plan-versus-implementation answer, and
 it is shown to the reviewer too.
@@ -190,12 +192,18 @@ open browser updates live.
 
 **CRITICAL — you MUST run this step. Do NOT skip it.**
 
-Ingest does not wait for the human. Run `crit` **in the background** with
-`run_in_background: true`:
+Ingest opens the view but does not wait for the human. Run `crit` **in the
+background** with `run_in_background: true` to block until Finish Review:
 
 ```bash
 crit
 ```
+
+If the working tree is clean and your commits are already on the base branch,
+bare `crit` exits with "No changed files found" — pass a base it can diff
+against (`crit --base-branch origin/main`), which keeps the same review session
+the graph is stored in. Do **not** use `--range`: that keys a different review
+file and the graph will not be there.
 
 Relay the URL verbatim:
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tomasz-tomczyk/crit/internal/clicmd"
+	"github.com/tomasz-tomczyk/crit/internal/config"
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/graph"
 	"github.com/tomasz-tomczyk/crit/internal/review"
@@ -40,10 +41,72 @@ type graphFlags struct {
 
 // Package vars so tests can stub the daemon interaction.
 var (
-	graphDaemonAlive = daemon.FindAliveSession
-	graphPostGraph   = postGraphToDaemon
-	graphDeleteGraph = deleteGraphFromDaemon
+	graphDaemonAlive      = daemon.FindAliveSession
+	graphPostGraph        = postGraphToDaemon
+	graphDeleteGraph      = deleteGraphFromDaemon
+	graphStartDaemon      = daemon.StartDaemon
+	graphDaemonHasBrowser = daemon.DaemonHasBrowser
 )
+
+// graphURLFragment lands the browser directly on the graph view instead of
+// making the reader find the toggle, mirroring story mode's "#story".
+const graphURLFragment = "#graph"
+
+// graphNoOpen honors --no-open and the config's no_open.
+func graphNoOpen(f graphFlags, cwd string) bool {
+	if f.noOpen {
+		return true
+	}
+	return config.LoadConfig(cwd).NoOpen
+}
+
+// graphDaemonArgs forwards the review targeting to the spawned daemon so it
+// serves the same review the graph was saved to.
+func graphDaemonArgs(f graphFlags) []string {
+	if f.outputDir != "" {
+		return []string{"--output", f.outputDir}
+	}
+	return nil
+}
+
+// openGraphView surfaces the graph. A running daemon already has the graph
+// (it was POSTed, or it loads the review file on start), so this only needs to
+// put a tab on it; otherwise it spawns one.
+//
+// Spawning here deliberately bypasses `crit review`'s "No changed files"
+// preflight, which is a guard for a bare `crit` with nothing to show. A graph
+// IS something to show — in plan phase it is routinely the only thing in the
+// review, authored before any of the code exists.
+func openGraphView(f graphFlags) {
+	key, err := graphReviewSessionKey(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: %v\n", err)
+		return
+	}
+	cwd, cwdErr := daemon.ResolvedCWD()
+	if cwdErr != nil {
+		cwd = "."
+	}
+
+	if entry, alive := graphDaemonAlive(key); alive {
+		if !graphNoOpen(f, cwd) && !graphDaemonHasBrowser(entry) {
+			openBrowser(entry.BaseURL()+graphURLFragment, config.LoadConfig(cwd).OpenCmd)
+		}
+		fmt.Fprintf(os.Stderr, "Graph is open at %s%s\n", entry.BaseURL(), graphURLFragment)
+		return
+	}
+
+	entry, err := graphStartDaemon(key, graphDaemonArgs(f))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "note: could not start the review daemon: %v\n", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Started crit daemon at %s (session %s, PID %d)\n", entry.BaseURL(), key, entry.PID)
+	fmt.Fprintf(os.Stderr, "Open %s%s\n", entry.BaseURL(), graphURLFragment)
+	if !graphNoOpen(f, cwd) && !graphDaemonHasBrowser(entry) {
+		openBrowser(entry.BaseURL()+graphURLFragment, config.LoadConfig(cwd).OpenCmd)
+	}
+}
 
 func printGraphUsage() {
 	fmt.Fprintln(os.Stderr, `Usage: crit graph [options] [file.json]
@@ -57,6 +120,7 @@ Examples:
   crit graph --guide                    Print the authoring guide and every diagnostic code
   crit graph --check /tmp/g.json        Validate without saving (exit 1 on errors)
   crit graph /tmp/g.json                Validate, save, and open the graph view
+  crit graph                            Reopen the stored graph in the browser
   crit graph --phase review /tmp/g.json Re-author after implementing; reports drift
   crit graph --clear                    Remove the graph from the review
 
@@ -67,7 +131,7 @@ Graph options:
       --guide              Print the authoring guide, schema, and diagnostic codes
       --phase <plan|review> Authoring phase (default plan; review reports drift)
       --clear              Remove the graph from the review
-      --no-open            Do not open the browser after saving
+      --no-open            Start the daemon but do not open a browser
 
 Review targeting:
       --plan <slug>        Attach to a stored plan review
@@ -176,7 +240,7 @@ func runGraphE(args []string) error {
 	if f.graphFile != "" {
 		return runGraphIngest(f, critPath, cj)
 	}
-	return runGraphStatus(cj)
+	return runGraphOpen(f, cj)
 }
 
 func wantsGraphHelp(args []string) bool {
@@ -222,6 +286,7 @@ func runGraphIngest(f graphFlags, critPath string, cj review.CritJSON) error {
 		if entry, alive := graphDaemonAlive(key); alive {
 			if postErr := graphPostGraph(entry, g); postErr == nil {
 				printGraphSaved(res.Diagnostics)
+				openGraphView(f)
 				return nil
 			} else if _, stillAlive := graphDaemonAlive(key); stillAlive {
 				return clicmd.ExitError{Code: 1, Err: fmt.Errorf("saving graph to running review: %w", postErr)}
@@ -235,6 +300,7 @@ func runGraphIngest(f graphFlags, critPath string, cj review.CritJSON) error {
 	}
 	warnOrphanedNodeComments(cj, res.Diagnostics)
 	printGraphSaved(res.Diagnostics)
+	openGraphView(f)
 	return nil
 }
 
@@ -299,15 +365,18 @@ func clearGraph(f graphFlags, critPath string, cj review.CritJSON) error {
 	return nil
 }
 
-// runGraphStatus reports what is stored, for a bare `crit graph`.
-func runGraphStatus(cj review.CritJSON) error {
+// runGraphOpen handles a bare `crit graph`: reopen the stored graph. Printing
+// its shape and exiting was the wrong default — the reason to type `crit
+// graph` with no arguments is to look at the graph.
+func runGraphOpen(f graphFlags, cj review.CritJSON) error {
 	if cj.Graph == nil {
 		fmt.Fprintln(os.Stderr, "No graph on this review. Author one:\n  crit graph --template > /tmp/graph.json\n  crit graph --guide\n  crit graph /tmp/graph.json")
 		return clicmd.ExitError{Code: 1, Err: errors.New("no graph")}
 	}
 	printGraphDiagnostics(cj.Graph.Diagnostics)
-	fmt.Fprintf(os.Stderr, "Graph present: %q (phase %s, %s).\n",
+	fmt.Fprintf(os.Stderr, "Graph: %q (phase %s, %s).\n",
 		cj.Graph.Title, cj.Graph.Phase, describeGraphShape(cj.Graph.Diagnostics))
+	openGraphView(f)
 	return nil
 }
 

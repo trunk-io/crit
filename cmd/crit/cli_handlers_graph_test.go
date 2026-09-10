@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/graph"
 	"github.com/tomasz-tomczyk/crit/internal/session"
 )
@@ -305,5 +306,105 @@ func TestCountLabelPluralizes(t *testing.T) {
 		if got := countLabel(tc.n, "node"); got != tc.want {
 			t.Errorf("countLabel(%d) = %q, want %q", tc.n, got, tc.want)
 		}
+	}
+}
+
+// `crit graph` must serve the graph, not just save it. The flag was documented
+// and inert, and the ingest promised a view it never surfaced — which meant the
+// only way to see a graph was `crit` plus finding the toggle.
+func TestGraphIngestOpensTheView(t *testing.T) {
+	restore := stubGraphDaemon(t)
+	defer restore()
+
+	path := writeTemp(t, "g.json", graph.TemplateJSON())
+	captureStdout(t, func() {
+		if err := runGraphE([]string{"--check", path}); err != nil {
+			t.Fatalf("precondition: template should validate: %v", err)
+		}
+	})
+
+	// --check must never spawn anything: it is the tight repair loop.
+	if spawnedKey != "" {
+		t.Errorf("--check spawned a daemon (%q); it must not", spawnedKey)
+	}
+	if openedURL != "" {
+		t.Errorf("--check opened a browser (%q); it must not", openedURL)
+	}
+}
+
+// The browser must land on the graph, not on the file list.
+func TestOpenGraphViewUsesTheGraphFragment(t *testing.T) {
+	restore := stubGraphDaemon(t)
+	defer restore()
+
+	openGraphView(graphFlags{})
+	if spawnedKey == "" {
+		t.Fatal("expected a daemon spawn when none is running")
+	}
+	if !strings.HasSuffix(openedURL, graphURLFragment) {
+		t.Errorf("opened %q, want it to end in %q", openedURL, graphURLFragment)
+	}
+}
+
+// --no-open was documented from the start and did nothing at all.
+func TestOpenGraphViewHonorsNoOpen(t *testing.T) {
+	restore := stubGraphDaemon(t)
+	defer restore()
+
+	openGraphView(graphFlags{noOpen: true})
+	if spawnedKey == "" {
+		t.Error("--no-open should still start the daemon, only skip the browser")
+	}
+	if openedURL != "" {
+		t.Errorf("--no-open opened %q", openedURL)
+	}
+}
+
+// A daemon already serving this review has the graph; only put a tab on it.
+func TestOpenGraphViewReusesARunningDaemon(t *testing.T) {
+	restore := stubGraphDaemon(t)
+	defer restore()
+	graphDaemonAlive = func(string) (daemon.SessionEntry, bool) {
+		return daemon.SessionEntry{Port: 4321}, true
+	}
+
+	openGraphView(graphFlags{})
+	if spawnedKey != "" {
+		t.Errorf("spawned a second daemon (%q) while one was running", spawnedKey)
+	}
+	if !strings.HasSuffix(openedURL, graphURLFragment) {
+		t.Errorf("opened %q, want the graph fragment", openedURL)
+	}
+}
+
+func TestGraphDaemonArgsForwardsOutputDir(t *testing.T) {
+	if got := graphDaemonArgs(graphFlags{}); len(got) != 0 {
+		t.Errorf("args = %v, want none", got)
+	}
+	got := graphDaemonArgs(graphFlags{outputDir: "/tmp/data"})
+	if len(got) != 2 || got[0] != "--output" || got[1] != "/tmp/data" {
+		t.Errorf("args = %v, want [--output /tmp/data]", got)
+	}
+}
+
+var (
+	spawnedKey string
+	openedURL  string
+)
+
+// stubGraphDaemon replaces the daemon/browser seams and resets the recorders.
+func stubGraphDaemon(t *testing.T) func() {
+	t.Helper()
+	origAlive, origStart, origHasBrowser, origOpen := graphDaemonAlive, graphStartDaemon, graphDaemonHasBrowser, openBrowser
+	spawnedKey, openedURL = "", ""
+	graphDaemonAlive = func(string) (daemon.SessionEntry, bool) { return daemon.SessionEntry{}, false }
+	graphStartDaemon = func(key string, _ []string) (daemon.SessionEntry, error) {
+		spawnedKey = key
+		return daemon.SessionEntry{Port: 1234, PID: 42}, nil
+	}
+	graphDaemonHasBrowser = func(daemon.SessionEntry) bool { return false }
+	openBrowser = func(url, _ string) { openedURL = url }
+	return func() {
+		graphDaemonAlive, graphStartDaemon, graphDaemonHasBrowser, openBrowser = origAlive, origStart, origHasBrowser, origOpen
 	}
 }

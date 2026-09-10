@@ -8597,7 +8597,15 @@
     toggle.addEventListener('click', function (e) {
       const btn = e.target.closest('.toggle-btn');
       if (!btn || !toggle.contains(btn)) return;
-      setGraphVisible(btn.dataset.graphView === 'graph');
+      const wantGraph = btn.dataset.graphView === 'graph';
+      setGraphVisible(wantGraph);
+      // Mirror the state into the fragment so the URL a reader copies reopens
+      // the same view. replaceState, not a hash write: a hashchange here would
+      // bounce back through the listener above.
+      if (window.history && window.history.replaceState) {
+        const next = wantGraph ? '#graph' : location.pathname + location.search;
+        window.history.replaceState(null, '', next);
+      }
     });
   }
 
@@ -12085,9 +12093,21 @@
 
   // Graph-view chrome. Fetching the graph is fire-and-forget: a review with no
   // graph is the common case, and the toggle simply stays hidden.
+  //
+  // The `#graph` fragment is what `crit graph` opens, so the reader lands on
+  // the diagram instead of having to find the toggle. It is honored on load
+  // and on hashchange, and toggling the view keeps the fragment in step so the
+  // URL stays shareable.
   (function wireGraphChrome() {
     initGraphViewToggle();
-    loadGraph();
+    const wantsGraph = function () {
+      return (location.hash || '').indexOf('#graph') === 0;
+    };
+    loadGraph(wantsGraph());
+    window.addEventListener('hashchange', function () {
+      if (wantsGraph()) setGraphVisible(true);
+      else if (graphVisible) setGraphVisible(false);
+    });
   })();
 
   // Rail toggle + scrim wiring (safe when elements absent).
