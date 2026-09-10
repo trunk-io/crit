@@ -125,6 +125,7 @@
         color: (def && def.color) || 'slate',
         group: (def && def.group) || '',
         description: (def && def.description) || '',
+        style: (def && def.style) || 'chip',
       };
     });
   }
@@ -281,37 +282,139 @@
     return wrap;
   }
 
-  // ===== Badge markers inside the SVG node =====
+  // ===== Badge rendering inside the SVG node =====
+  //
+  // Chips and outlines are two channels on purpose. A chip says WHAT (which
+  // test strategy, which stack phase); an outline says LOOK HERE. Rendering
+  // "needs attention" as one more chip made it compete with the chips beside
+  // it, which is the opposite of what it is for.
+  //
+  // Both are appended INSIDE the node's own <g>, so they inherit its SVG
+  // transform and pan, zoom, and the detached fullscreen clone all keep them
+  // attached with no repositioning code.
 
-  var MARKER_SIZE = 7;
-  var MARKER_GAP = 2;
+  var CHIP_HEIGHT = 13;
+  var CHIP_PAD_X = 5;
+  var CHIP_GAP = 3;
+  var CHIP_ROW_GAP = 2;
+  var CHIP_TOP_GAP = 3;
+  var OUTLINE_INSET = -7;
 
-  // attachBadgeMarkers draws one small square per badge inside the node's own
-  // <g>, below its shape. Being inside the node's group is the whole trick:
-  // the markers inherit its transform, so pan, zoom, and the detached
-  // fullscreen clone all carry them with no repositioning.
-  function attachBadgeMarkers(nodeEl, badges, box) {
+  function outlineBadge(badges) {
+    for (var i = 0; i < badges.length; i++) {
+      if (badges[i].style === 'outline') return badges[i];
+    }
+    return null;
+  }
+
+  function chipBadges(badges) {
+    return badges.filter(function (b) {
+      return b.style !== 'outline';
+    });
+  }
+
+  // attachAttentionOutline rings the node. It is drawn outside the shape's own
+  // border rather than recoloring it, because that border already carries the
+  // node's status — the two signals must not fight over one channel.
+  function attachAttentionOutline(nodeEl, badge, box) {
+    if (!badge || !box) return;
+    if (nodeEl.querySelector('.crit-graph-outline')) return;
+    var ring = svgEl('rect');
+    ring.setAttribute('class', 'crit-graph-outline crit-outline-' + badge.color);
+    ring.setAttribute('x', String(box.x + OUTLINE_INSET));
+    ring.setAttribute('y', String(box.y + OUTLINE_INSET));
+    ring.setAttribute('width', String(box.width - OUTLINE_INSET * 2));
+    ring.setAttribute('height', String(box.height - OUTLINE_INSET * 2));
+    ring.setAttribute('rx', '6');
+    var title = svgEl('title');
+    title.textContent = badge.description ? badge.label + ' — ' + badge.description : badge.label;
+    ring.appendChild(title);
+    // Behind the label but around the shape: insert first so it never covers
+    // the node's own text.
+    nodeEl.insertBefore(ring, nodeEl.firstChild);
+  }
+
+  // attachBadgeChips draws one labelled chip per badge under the node.
+  //
+  // Chip widths are measured after insertion rather than estimated from the
+  // string: the font is the review UI's, not ours, so any estimate would be
+  // wrong on some platform and the labels would sit off-centre.
+  function attachBadgeChips(nodeEl, badges, box, hasOutline) {
     if (!badges.length || !box) return;
-    if (nodeEl.querySelector('.crit-graph-marker-row')) return;
+    if (nodeEl.querySelector('.crit-graph-chip-row')) return;
+    // Clear the attention ring when there is one, or the first chip row cuts
+    // straight through its bottom edge.
+    var topGap = CHIP_TOP_GAP + (hasOutline ? -OUTLINE_INSET : 0);
+
     var group = svgEl('g');
-    group.setAttribute('class', 'crit-graph-marker-row');
-    var totalWidth = badges.length * MARKER_SIZE + (badges.length - 1) * MARKER_GAP;
-    var startX = box.x + box.width / 2 - totalWidth / 2;
-    var y = box.y + box.height + MARKER_GAP;
-    badges.forEach(function (b, i) {
+    group.setAttribute('class', 'crit-graph-chip-row');
+    nodeEl.appendChild(group);
+
+    // Pass 1: insert the labels so they can be measured.
+    var chips = badges.map(function (b) {
+      var chip = svgEl('g');
+      chip.setAttribute('class', 'crit-graph-chip crit-chip-' + b.color);
       var rect = svgEl('rect');
-      rect.setAttribute('class', 'crit-graph-marker crit-marker-' + b.color);
-      rect.setAttribute('x', String(startX + i * (MARKER_SIZE + MARKER_GAP)));
-      rect.setAttribute('y', String(y));
-      rect.setAttribute('width', String(MARKER_SIZE));
-      rect.setAttribute('height', String(MARKER_SIZE));
-      rect.setAttribute('rx', '1.5');
+      rect.setAttribute('class', 'crit-graph-chip-bg');
+      rect.setAttribute('rx', '3');
+      rect.setAttribute('height', String(CHIP_HEIGHT));
+      chip.appendChild(rect);
+      var text = svgEl('text');
+      text.setAttribute('class', 'crit-graph-chip-text');
+      text.textContent = b.label;
+      chip.appendChild(text);
       var title = svgEl('title');
       title.textContent = b.description ? b.label + ' — ' + b.description : b.label;
-      rect.appendChild(title);
-      group.appendChild(rect);
+      chip.appendChild(title);
+      group.appendChild(chip);
+      return { el: chip, rect: rect, text: text };
     });
-    nodeEl.appendChild(group);
+
+    // Pass 2: size each chip to its measured label.
+    chips.forEach(function (c) {
+      var w = 0;
+      try {
+        w = c.text.getComputedTextLength();
+      } catch (e) {
+        w = (c.text.textContent || '').length * 5.5;
+      }
+      c.width = Math.ceil(w) + CHIP_PAD_X * 2;
+      c.rect.setAttribute('width', String(c.width));
+    });
+
+    // Pass 3: lay out rows, wrapping so a heavily badged node grows downward
+    // rather than sideways past its own edges.
+    var maxRow = Math.max(box.width, 120);
+    var rows = [[]];
+    var rowWidth = 0;
+    chips.forEach(function (c) {
+      var next = rowWidth === 0 ? c.width : rowWidth + CHIP_GAP + c.width;
+      if (rowWidth > 0 && next > maxRow) {
+        rows.push([c]);
+        rowWidth = c.width;
+        return;
+      }
+      rows[rows.length - 1].push(c);
+      rowWidth = next;
+    });
+
+    var y = box.y + box.height + topGap;
+    rows.forEach(function (row) {
+      var total = row.reduce(function (acc, c) {
+        return acc + c.width;
+      }, 0) + CHIP_GAP * (row.length - 1);
+      var x = box.x + box.width / 2 - total / 2;
+      row.forEach(function (c) {
+        c.rect.setAttribute('x', String(x));
+        c.rect.setAttribute('y', String(y));
+        c.text.setAttribute('x', String(x + c.width / 2));
+        c.text.setAttribute('y', String(y + CHIP_HEIGHT / 2));
+        c.text.setAttribute('text-anchor', 'middle');
+        c.text.setAttribute('dominant-baseline', 'central');
+        x += c.width + CHIP_GAP;
+      });
+      y += CHIP_HEIGHT + CHIP_ROW_GAP;
+    });
   }
 
   // shapeBox measures a node's own shape, not its <g>. Measuring the group
@@ -340,6 +443,16 @@
     selected: null,
     hoverCard: null,
   };
+
+  function entrySet() {
+    var d = state.graph && state.graph.diagnostics;
+    var list = (d && (d.entries || d.Entries)) || [];
+    var set = {};
+    list.forEach(function (id) {
+      set[id] = true;
+    });
+    return set;
+  }
 
   function commentsFor(id) {
     return (state.comments && state.comments[id]) || [];
@@ -446,7 +559,11 @@
       nodeEl.setAttribute('aria-label', id + ' — ' + statusLabel(node.status));
 
       var box = shapeBox(nodeEl);
-      attachBadgeMarkers(nodeEl, badgesFor(state.graph, node), box);
+      if (entrySet()[id]) attachEntryMarker(nodeEl, box);
+      var badges = badgesFor(state.graph, node);
+      var ring = outlineBadge(badges);
+      attachAttentionOutline(nodeEl, ring, box);
+      attachBadgeChips(nodeEl, chipBadges(badges), box, !!ring);
       attachCommentBadge(nodeEl, id, box);
 
       nodeEl.addEventListener('mouseenter', function () {
@@ -588,6 +705,79 @@
     wrap.appendChild(btn);
   }
 
+  // READ_DIRECTION turns the flowchart direction into the sentence a reader
+  // actually needs. Stating it is the cheapest possible standardisation: the
+  // layout alone does not announce which way a hierarchy flows, and a reader
+  // who guesses wrong reads the call tree backwards.
+  var READ_DIRECTION = {
+    LR: { arrow: '→', text: 'callers on the left, callees on the right' },
+    RL: { arrow: '←', text: 'callers on the right, callees on the left' },
+    TD: { arrow: '↓', text: 'callers on top, callees below' },
+    TB: { arrow: '↓', text: 'callers on top, callees below' },
+    BT: { arrow: '↑', text: 'callers at the bottom, callees above' },
+  };
+
+  function renderAxis(container) {
+    var d = state.graph && state.graph.diagnostics;
+    var dir = (d && d.Direction) || (d && d.direction) || '';
+    var spec = READ_DIRECTION[dir];
+    if (!spec) return;
+
+    var bar = el('div', 'crit-graph-axis');
+    bar.appendChild(el('span', 'crit-graph-axis-arrow', spec.arrow));
+    bar.appendChild(el('span', 'crit-graph-axis-text', 'Reads ' + spec.text));
+
+    var entries = (d && (d.entries || d.Entries)) || [];
+    if (entries.length) {
+      var start = el('span', 'crit-graph-axis-entries');
+      start.appendChild(el('span', 'crit-graph-axis-label', 'start at'));
+      entries.slice(0, 4).forEach(function (id) {
+        var b = el('button', 'crit-graph-entry-link', id);
+        b.type = 'button';
+        b.addEventListener('click', function () {
+          selectNode(id);
+          scrollNodeIntoView(id);
+        });
+        start.appendChild(b);
+      });
+      if (entries.length > 4) {
+        start.appendChild(el('span', 'crit-graph-axis-label', '+' + (entries.length - 4) + ' more'));
+      }
+      bar.appendChild(start);
+    }
+    container.appendChild(bar);
+  }
+
+  function scrollNodeIntoView(id) {
+    var nodes = document.querySelectorAll('.crit-graph-diagram g.node');
+    Array.prototype.forEach.call(nodes, function (nodeEl) {
+      if (nodeIdFromElement(nodeEl) === id && nodeEl.scrollIntoView) {
+        nodeEl.scrollIntoView({ block: 'nearest', inline: 'center' });
+      }
+    });
+  }
+
+  // attachEntryMarker flags a node nothing calls. Colour and chips say what a
+  // node IS; this says where to begin, which is the other half of reading a
+  // hierarchy at a glance.
+  function attachEntryMarker(nodeEl, box) {
+    if (!box) return;
+    if (nodeEl.querySelector('.crit-graph-entry-marker')) return;
+    var group = svgEl('g');
+    group.setAttribute('class', 'crit-graph-entry-marker');
+    var tick = svgEl('rect');
+    tick.setAttribute('x', String(box.x - 3));
+    tick.setAttribute('y', String(box.y));
+    tick.setAttribute('width', '3');
+    tick.setAttribute('height', String(box.height));
+    tick.setAttribute('rx', '1.5');
+    group.appendChild(tick);
+    var title = svgEl('title');
+    title.textContent = 'entry point — nothing in this graph calls it';
+    group.appendChild(title);
+    nodeEl.appendChild(group);
+  }
+
   function renderLegend(container) {
     var graph = state.graph;
     var wrap = el('div', 'crit-graph-legend');
@@ -607,7 +797,14 @@
       row.appendChild(el('span', 'crit-graph-legend-label', g.group));
       g.badges.forEach(function (b) {
         var item = el('span', 'crit-graph-legend-item');
-        item.appendChild(el('span', 'crit-graph-swatch crit-marker-' + b.color));
+        var swatch = el('span', 'crit-graph-swatch crit-marker-' + b.color);
+        // An outline badge's swatch is a ring, so the legend shows the same
+        // channel the diagram uses rather than implying a filled chip.
+        if (b.style === 'outline') {
+          swatch.classList.add('is-outline');
+          swatch.style.borderColor = 'var(--crit-graph-' + b.color + ')';
+        }
+        item.appendChild(swatch);
         var text = el('span', null, b.label);
         if (b.description) text.setAttribute('title', b.description);
         item.appendChild(text);
@@ -713,6 +910,7 @@
 
     renderHeader(container);
     renderNotices(container);
+    renderAxis(container);
     renderLegend(container);
 
     var diagramWrap = el('div', 'crit-graph-diagram-wrap');
@@ -775,6 +973,8 @@
     nodeIdFromElement: nodeIdFromElement,
     copyTargetFor: copyTargetFor,
     badgesFor: badgesFor,
+    outlineBadge: outlineBadge,
+    chipBadges: chipBadges,
     legendGroups: legendGroups,
     countCallNodes: countCallNodes,
     buildNodeCard: buildNodeCard,

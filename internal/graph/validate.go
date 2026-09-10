@@ -40,6 +40,9 @@ const (
 	CodeBadgeDuplicateID       = "badge_duplicate_id"
 	CodeBadgeMissingLabel      = "badge_missing_label"
 	CodeBadgeUnused            = "badge_unused"
+	CodeBadgeBadStyle          = "badge_bad_style"
+	CodeBadgeLongLabel         = "badge_long_label"
+	CodeNodeManyOutlines       = "node_many_outlines"
 	CodeSubgraphNoMetadata     = "subgraph_no_metadata"
 	CodeSubgraphWrongKind      = "subgraph_wrong_kind"
 	CodePhaseInvalid           = "phase_invalid"
@@ -50,6 +53,10 @@ const (
 
 // Version is the only graph schema version crit accepts.
 const Version = 1
+
+// maxChipLabelRunes keeps a chip to roughly one word. Chips are drawn on the
+// node itself, so the cap is a layout constraint, not a style preference.
+const maxChipLabelRunes = 12
 
 // maxReadableNodes is where a call hierarchy stops being one. The guide asks
 // for the 8-25 functions that carry a change; this sits well above that so it
@@ -246,6 +253,24 @@ func validateLegend(d *session.GraphDiagnostics, g *session.Graph) {
 				Fix:     `set "label" to the short text the badge shows`,
 			})
 		}
+		if b.Style != "" && b.Style != session.BadgeStyleChip && b.Style != session.BadgeStyleOutline {
+			add(d, session.GraphDiagnostic{
+				Code: CodeBadgeBadStyle, Severity: session.SeverityError,
+				Badge:   b.ID,
+				Message: "badge " + q(b.ID) + " has style " + q(b.Style),
+				Fix:     `set "style" to "chip" (a small labelled chip, the default) or "outline" (a ring around the node)`,
+			})
+		}
+		// A chip's label is rendered inside the node's own footprint, so a long
+		// one makes every node carrying it wide enough to distort the layout.
+		if b.Style != session.BadgeStyleOutline && len([]rune(b.Label)) > maxChipLabelRunes {
+			add(d, session.GraphDiagnostic{
+				Code: CodeBadgeLongLabel, Severity: session.SeverityWarning,
+				Badge:   b.ID,
+				Message: fmt.Sprintf("chip label %q is %d characters", b.Label, len([]rune(b.Label))),
+				Fix:     fmt.Sprintf("keep a chip to one short word (<= %d characters) — it is drawn on every node that carries it; put the detail in \"description\"", maxChipLabelRunes),
+			})
+		}
 		if !palette[b.Color] {
 			add(d, session.GraphDiagnostic{
 				Code: CodeBadgeBadColor, Severity: session.SeverityError,
@@ -276,8 +301,12 @@ func validateLegend(d *session.GraphDiagnostics, g *session.Graph) {
 
 func validateNodes(d *session.GraphDiagnostics, g *session.Graph, scan Scan) {
 	legend := map[string]bool{}
+	outline := map[string]bool{}
 	for _, b := range g.Legend {
 		legend[b.ID] = true
+		if b.Style == session.BadgeStyleOutline {
+			outline[b.ID] = true
+		}
 	}
 	degree := map[string]int{}
 	for _, e := range scan.Edges {
@@ -298,7 +327,7 @@ func validateNodes(d *session.GraphDiagnostics, g *session.Graph, scan Scan) {
 		n := g.Nodes[id]
 		validateNodeVocabulary(d, id, n)
 		validateNodeLocation(d, g, id, n, subgraph[id])
-		validateNodeBadges(d, legend, id, n)
+		validateNodeBadges(d, legend, outline, id, n)
 		validateNodeConnectivity(d, id, degree[id], subgraph[id], len(scan.Nodes))
 	}
 }
@@ -392,7 +421,23 @@ func validateMissingLine(d *session.GraphDiagnostics, g *session.Graph, id strin
 	})
 }
 
-func validateNodeBadges(d *session.GraphDiagnostics, legend map[string]bool, id string, n session.GraphNode) {
+func validateNodeBadges(d *session.GraphDiagnostics, legend, outline map[string]bool, id string, n session.GraphNode) {
+	outlines := 0
+	for _, b := range n.Badges {
+		if outline[b] {
+			outlines++
+		}
+	}
+	// Rings do not compose: a second one would draw a second border around the
+	// same node, which reads as noise rather than as two signals.
+	if outlines > 1 {
+		add(d, session.GraphDiagnostic{
+			Code: CodeNodeManyOutlines, Severity: session.SeverityWarning,
+			Node:    id,
+			Message: fmt.Sprintf("node %s carries %d outline badges; only the first is drawn", q(id), outlines),
+			Fix:     "keep one outline badge per node and express the rest as chips",
+		})
+	}
 	for _, b := range n.Badges {
 		if legend[b] {
 			continue
@@ -500,6 +545,8 @@ func finish(d *session.GraphDiagnostics, scan *Scan) *session.GraphDiagnostics {
 		d.Stats.Nodes = len(scan.Nodes)
 		d.Stats.Modules = len(scan.Subgraphs)
 		d.Stats.Edges = len(scan.Edges)
+		d.Direction = scan.Direction
+		d.Entries = entryNodes(*scan)
 	}
 	return d
 }
@@ -523,6 +570,26 @@ func Stats(g *session.Graph, d *session.GraphDiagnostics) {
 			d.Stats.External++
 		}
 	}
+}
+
+// entryNodes lists the nodes nothing points at, in diagram order — the places
+// a reader starts. A fully cyclic graph legitimately has none, in which case
+// the viewer simply says nothing rather than inventing a starting point.
+func entryNodes(scan Scan) []string {
+	inDegree := map[string]int{}
+	for _, n := range scan.Nodes {
+		inDegree[n.ID] = 0
+	}
+	for _, e := range scan.Edges {
+		inDegree[e.To]++
+	}
+	var out []string
+	for _, n := range scan.Nodes {
+		if inDegree[n.ID] == 0 {
+			out = append(out, n.ID)
+		}
+	}
+	return out
 }
 
 func q(s string) string { return `"` + s + `"` }

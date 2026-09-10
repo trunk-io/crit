@@ -53,6 +53,12 @@ wiring wrong by construction.
 
 ## Step 2: Decide what belongs in the graph
 
+**Edges point from caller to callee**, always. The viewer states the reading
+direction and marks the nodes nothing calls as where to start, both derived
+from the edges — so one backwards edge inverts the diagram's meaning while
+still rendering perfectly. Use `flowchart LR` unless the change is one deep
+stack, in which case `TD`.
+
 **This is a call hierarchy, not an AST.** The single most common failure is
 including too much. Include a function if a reader needs it to follow control
 flow across the change. Leave out:
@@ -109,12 +115,17 @@ shapes to distinguish:
 
 **Attention** — the badge that earns the graph its keep. Mark the nodes where
 a human's judgement is actually needed, and be sparing: if a third of the
-graph is flagged, the flag means nothing.
+graph is flagged, the flag means nothing. Give it `"style": "outline"` so it
+rings the node instead of adding one more chip to compete with:
 
 ```json
 {"id": "attention", "label": "read closely", "color": "red", "group": "attention",
- "description": "needs the most human attention"}
+ "style": "outline", "description": "needs the most human attention"}
 ```
+
+Every other badge is a chip, and a chip's label must be **one short word**
+(`go`, `unit`, `e2e`, `pr2`) — it is drawn on every node carrying it. Put the
+sentence in `description`; that is what the tooltip and the legend show.
 
 **Stack phase** — when the work lands as a stack of PRs, say which one
 introduces each node:

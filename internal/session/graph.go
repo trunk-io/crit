@@ -74,7 +74,23 @@ type GraphBadge struct {
 	Color       string `json:"color"`
 	Group       string `json:"group,omitempty"` // free-form; groups badges into rows in the UI
 	Description string `json:"description,omitempty"`
+
+	// Style picks the badge's visual channel. BadgeStyleChip (the default)
+	// draws a small labelled chip under the node. BadgeStyleOutline instead
+	// rings the node in the badge's color, which is the right channel for
+	// "look at this one" — a chip competes with the other chips for attention,
+	// whereas an outline reads at a glance across the whole diagram.
+	//
+	// The ring is drawn OUTSIDE the node's own border rather than recoloring
+	// it, because the border already carries status.
+	Style string `json:"style,omitempty"`
 }
+
+// Badge styles.
+const (
+	BadgeStyleChip    = "chip"
+	BadgeStyleOutline = "outline"
+)
 
 // GraphDiagnostic is one validation finding. Every field exists to make an
 // agent's repair loop mechanical: Code is stable and greppable, Node/Badge/Line
@@ -100,6 +116,17 @@ type GraphDiagnostics struct {
 	Items    []GraphDiagnostic `json:"items,omitempty"`
 	Stats    GraphStats        `json:"stats"`
 	Drift    *GraphDrift       `json:"drift,omitempty"`
+
+	// Direction is the diagram's flowchart direction (LR, TD, …). The viewer
+	// states it in words, because a reader opening a call hierarchy has to know
+	// which way it reads before anything else on the page means anything, and
+	// a Mermaid layout does not announce that on its own.
+	Direction string `json:"direction,omitempty"`
+
+	// Entries are the nodes nothing calls — where reading starts. Derived here
+	// rather than in the viewer because in-degree needs the edge set, which
+	// only the scanner has.
+	Entries []string `json:"entries,omitempty"`
 }
 
 // GraphStats is the shape summary, useful both as a sanity check for the

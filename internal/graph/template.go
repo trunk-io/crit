@@ -61,12 +61,16 @@ func Template() *session.Graph {
 			},
 		},
 		Legend: []session.GraphBadge{
+			// Chip labels are one short word: a chip is drawn on every node
+			// carrying it, so a long label distorts the layout.
 			{ID: "integration", Label: "integration", Color: "teal", Group: "tests",
 				Description: "integration test: msw-mocked HTTP against a locally seeded DB"},
 			{ID: "unit", Label: "unit", Color: "blue", Group: "tests",
 				Description: "unit test with ORM mocks"},
+			// "Look at this" gets its own channel — a ring around the node
+			// rather than one more chip competing with the chips beside it.
 			{ID: "attention", Label: "read closely", Color: "red", Group: "attention",
-				Description: "needs the most human attention"},
+				Style: session.BadgeStyleOutline, Description: "needs the most human attention"},
 		},
 	}
 }

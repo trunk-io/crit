@@ -89,6 +89,44 @@ and a colour reaches a style context.
 Status colour is separate and built in: `existing`, `new`, `modified`,
 `external`.
 
+### Two channels: chips and rings
+
+`style` picks how a badge is drawn, and the distinction is the point:
+
+- **`"chip"`** (default) — a small labelled chip under the node. It says *what*
+  a node is: which test strategy, which stack phase. Keep the label to one
+  short word; it is drawn on every node carrying it, so a long one distorts the
+  layout, and crit warns past 12 characters. Detail goes in `description`,
+  which is the chip's tooltip and its legend entry.
+- **`"outline"`** — a ring around the node, drawn *outside* its own border so
+  status still reads. This is the channel for *look at this one*. A chip for
+  "needs attention" competes with the chips beside it; a ring reads across the
+  whole diagram at a glance. Use it for one badge — rings do not compose, and
+  crit warns if a node carries two.
+
+```json
+{ "id": "attention", "label": "read closely", "color": "red",
+  "group": "attention", "style": "outline",
+  "description": "needs the most human attention" }
+```
+
+## Reading direction
+
+A call hierarchy is only legible if you know which way it flows, so the viewer
+does not leave that to inference. Above the diagram it states the direction in
+words — *"Reads callers on the left, callees on the right"* for `LR`, and the
+equivalent for `RL`/`TD`/`TB`/`BT` — and names the **entry points**: the nodes
+nothing in the graph calls, which is where reading starts. They are clickable,
+and each is ticked on the node itself.
+
+Entry points are derived from in-degree at ingest, not guessed by the viewer,
+because it needs the edge set. A fully cyclic graph has none, and the viewer
+then says nothing rather than inventing a starting point.
+
+The consequence for authoring: **edges must point from caller to callee**,
+consistently. An edge drawn the other way inverts the diagram's meaning while
+still rendering perfectly.
+
 ## Fixing an invalid graph
 
 `--check` validates without saving, so it is safe in a tight loop:

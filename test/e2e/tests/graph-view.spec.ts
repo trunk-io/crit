@@ -41,7 +41,7 @@ const GRAPH = {
   legend: [
     { id: 'integration', label: 'integration', color: 'teal', group: 'tests', description: 'msw + seeded db' },
     { id: 'unit', label: 'unit', color: 'blue', group: 'tests' },
-    { id: 'attention', label: 'read closely', color: 'red', group: 'attention' },
+    { id: 'attention', label: 'read closely', color: 'red', group: 'attention', style: 'outline' },
   ],
 };
 
@@ -98,15 +98,61 @@ test.describe('Call-hierarchy graph view', () => {
     await expect(diagram.locator('g.cluster.critNodeNew')).toHaveCount(1);
   });
 
-  // Badges must be visible on the node itself, not only in the hover card.
-  test('badge markers render on the node in the legend colour', async ({ page }) => {
+  // Badges must be readable on the node itself, not only in the hover card.
+  // Coloured blocks needed a hover to decode; a labelled chip does not.
+  test('badges render as labelled chips on the node', async ({ page }) => {
     const mint = page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first();
-    await expect(mint.locator('.crit-graph-marker')).toHaveCount(2);
-    await expect(mint.locator('.crit-graph-marker.crit-marker-blue')).toHaveCount(1);
-    await expect(mint.locator('.crit-graph-marker.crit-marker-red')).toHaveCount(1);
-    // An external node carries no badges and so no markers.
+    // mintToken carries `unit` (a chip) and `attention` (an outline), so one
+    // chip and one ring — not two chips.
+    await expect(mint.locator('.crit-graph-chip')).toHaveCount(1);
+    await expect(mint.locator('.crit-graph-chip text')).toHaveText('unit');
+    await expect(mint.locator('.crit-graph-outline')).toHaveCount(1);
+
+    // An external node carries no badges, so neither channel appears.
     const kms = page.locator('.crit-graph-diagram g.node', { hasText: 'signKms' }).first();
-    await expect(kms.locator('.crit-graph-marker')).toHaveCount(0);
+    await expect(kms.locator('.crit-graph-chip')).toHaveCount(0);
+    await expect(kms.locator('.crit-graph-outline')).toHaveCount(0);
+  });
+
+  // "Look at this" gets its own channel: a ring around the node rather than
+  // one more chip competing with the chips beside it. It must not steal the
+  // status colour, which the node's own border carries.
+  test('an attention badge rings the node in its own colour', async ({ page }) => {
+    const mint = page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first();
+    const colours = await mint.evaluate((el) => {
+      const ring = el.querySelector('.crit-graph-outline') as SVGElement;
+      const shape = el.querySelector('rect.label-container, rect:not(.crit-graph-outline)') as SVGElement;
+      return {
+        ring: getComputedStyle(ring).stroke,
+        ringFill: getComputedStyle(ring).fill,
+        shape: getComputedStyle(shape).stroke,
+      };
+    });
+    expect(colours.ring).not.toBe(colours.shape);
+    expect(colours.ringFill).toBe('none');
+    // handleReq has no attention badge, so no ring.
+    const handle = page.locator('.crit-graph-diagram g.node', { hasText: 'handleReq' }).first();
+    await expect(handle.locator('.crit-graph-outline')).toHaveCount(0);
+  });
+
+  // A reader who guesses the direction wrong reads the call tree backwards,
+  // so the direction is stated and the starting nodes are named.
+  test('the read direction and entry points are stated', async ({ page }) => {
+    const axis = page.locator('.crit-graph-axis');
+    await expect(axis).toBeVisible();
+    await expect(axis).toContainText('callers on the left');
+    // handleReq is the only node nothing points at.
+    const entries = axis.locator('.crit-graph-entry-link');
+    await expect(entries).toHaveCount(1);
+    await expect(entries.first()).toHaveText('handleReq');
+    // And it is marked on the node itself.
+    const handle = page.locator('.crit-graph-diagram g.node', { hasText: 'handleReq' }).first();
+    await expect(handle.locator('.crit-graph-entry-marker')).toHaveCount(1);
+
+    // Clicking the entry opens it, so the bar is a way in, not just a caption.
+    await entries.first().click();
+    await expect(page.locator('#graphNodePanel')).toHaveClass(/open/);
+    await expect(page.locator('#graphNodePanel .crit-graph-card-name')).toHaveText('handleReq');
   });
 
   test('hovering a node shows its signature, path, and badges', async ({ page }) => {

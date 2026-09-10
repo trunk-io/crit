@@ -269,3 +269,65 @@ test('a graph-only review defaults to the diagram', () => {
   assert.ok(body.includes('(files || []).length > 0'), 'must not fire when there is a diff');
   assert.ok(body.includes('graphVisible'), 'must not override a view the reader chose');
 });
+
+// Chips and outlines are two channels on purpose: a chip says WHAT, an
+// outline says LOOK HERE. Rendering attention as one more chip made it compete
+// with the chips beside it, which is the opposite of what it is for.
+test('badges split into chip and outline channels', () => {
+  const g = {
+    legend: [
+      { id: 'unit', label: 'unit', color: 'blue' },
+      { id: 'attention', label: 'read closely', color: 'red', style: 'outline' },
+    ],
+  };
+  const badges = view.badgesFor(g, { badges: ['unit', 'attention'] });
+  assert.strictEqual(view.outlineBadge(badges).id, 'attention');
+  assert.deepStrictEqual(view.chipBadges(badges).map((b) => b.id), ['unit']);
+  // A badge with no style declared defaults to a chip.
+  assert.strictEqual(view.badgesFor(g, { badges: ['unit'] })[0].style, 'chip');
+  assert.strictEqual(view.outlineBadge(view.badgesFor(g, { badges: ['unit'] })), null);
+});
+
+// The ring is a direct-child <rect> of the node group, so the status rules
+// (`.critNodeX > rect`) matched it and outranked a single outline class —
+// every ring came out in the status colour instead of the badge's.
+test('the attention ring is not captured by the status fill rules', () => {
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  for (const status of ['critNodeExisting', 'critNodeNew', 'critNodeModified', 'critNodeExternal']) {
+    assert.ok(
+      css.includes(`.${status} > rect:not(.crit-graph-outline)`),
+      `${status} must exclude the outline rect`
+    );
+  }
+  assert.ok(
+    css.includes('.crit-graph-outline.crit-outline-red'),
+    'the ring colour needs two classes to outrank the status rules'
+  );
+});
+
+// Every palette colour needs a chip and an outline rule, or a valid badge
+// renders colourless.
+test('every palette colour has chip and outline CSS', () => {
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  for (const c of ['red', 'orange', 'amber', 'green', 'teal', 'blue', 'indigo', 'violet', 'pink', 'slate']) {
+    // The rules are whitespace-aligned in the stylesheet, so match loosely.
+    assert.ok(css.includes(`.crit-chip-${c}`), `missing chip rules for ${c}`);
+    assert.ok(css.includes(`.crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-${c})`),
+      `missing chip bg for ${c}`);
+    assert.ok(css.includes(`.crit-graph-chip-text { fill: var(--crit-graph-${c})`),
+      `missing chip text for ${c}`);
+    assert.ok(css.includes(`.crit-graph-outline.crit-outline-${c}`), `missing outline for ${c}`);
+  }
+});
+
+// A reader who guesses the direction wrong reads the call tree backwards, so
+// every direction Mermaid accepts must have a sentence.
+test('every flowchart direction has a stated reading order', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  const table = src.slice(src.indexOf('var READ_DIRECTION'), src.indexOf('function renderAxis'));
+  for (const dir of ['LR', 'RL', 'TD', 'TB', 'BT']) {
+    assert.ok(table.includes(`${dir}: {`), `no reading order for ${dir}`);
+  }
+  assert.ok(src.includes('function renderAxis'), 'the direction must be rendered');
+  assert.ok(src.includes('attachEntryMarker'), 'entry points must be marked on the nodes');
+});

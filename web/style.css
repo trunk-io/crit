@@ -6949,27 +6949,30 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 }
 
 /* Status fills. The selector lists every shape Mermaid may emit for a node,
-   because the shape is the author's choice and the color is not. */
-.critNodeExisting > rect, .critNodeExisting > polygon,
+   because the shape is the author's choice and the color is not.
+   `:not(.crit-graph-outline)` is load-bearing: the attention ring is also a
+   direct-child <rect>, and `.critNodeX > rect` outranks a single outline
+   class, so without the exclusion every ring rendered in the status colour. */
+.critNodeExisting > rect:not(.crit-graph-outline), .critNodeExisting > polygon,
 .critNodeExisting > circle, .critNodeExisting > ellipse, .critNodeExisting > path {
   fill: color-mix(in srgb, var(--crit-graph-slate) 18%, transparent) !important;
   stroke: var(--crit-graph-slate) !important;
 }
 
-.critNodeNew > rect, .critNodeNew > polygon,
+.critNodeNew > rect:not(.crit-graph-outline), .critNodeNew > polygon,
 .critNodeNew > circle, .critNodeNew > ellipse, .critNodeNew > path {
   fill: color-mix(in srgb, var(--crit-graph-green) 20%, transparent) !important;
   stroke: var(--crit-graph-green) !important;
   stroke-width: 2px !important;
 }
 
-.critNodeModified > rect, .critNodeModified > polygon,
+.critNodeModified > rect:not(.crit-graph-outline), .critNodeModified > polygon,
 .critNodeModified > circle, .critNodeModified > ellipse, .critNodeModified > path {
   fill: color-mix(in srgb, var(--crit-graph-blue) 18%, transparent) !important;
   stroke: var(--crit-graph-blue) !important;
 }
 
-.critNodeExternal > rect, .critNodeExternal > polygon,
+.critNodeExternal > rect:not(.crit-graph-outline), .critNodeExternal > polygon,
 .critNodeExternal > circle, .critNodeExternal > ellipse, .critNodeExternal > path {
   fill: transparent !important;
   stroke: var(--crit-graph-slate) !important;
@@ -6999,35 +7002,89 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
   background: transparent !important;
 }
 
-/* ---- Badge markers drawn inside each node's own <g> ----
-   These are <rect>s inside g.node, so Mermaid's ID-scoped
-   `#mermaid-<runId> .node rect { fill: … }` matches them and wins on
-   specificity — every marker came out node-colored before the !important.
-   Same reason the status fills above carry it. */
-.crit-graph-marker {
-  stroke: color-mix(in srgb, var(--crit-editor-fg) 25%, transparent) !important;
-  stroke-width: 0.5px !important;
+/* ---- Badges drawn inside each node's own <g> ----
+   Two channels, deliberately: a chip says WHAT (which test strategy, which
+   stack phase), an outline says LOOK HERE. Rendering "needs attention" as one
+   more chip made it compete with the chips beside it.
+
+   !important throughout because Mermaid's injected CSS is ID-scoped
+   (`#mermaid-<runId> .node rect { fill: … }`) and outranks any class selector —
+   without it every chip came out node-coloured. */
+.crit-graph-chip-bg {
+  stroke-width: 1px !important;
 }
 
-.crit-marker-red    { fill: var(--crit-graph-red) !important; }
-.crit-marker-orange { fill: var(--crit-graph-orange) !important; }
-.crit-marker-amber  { fill: var(--crit-graph-amber) !important; }
-.crit-marker-green  { fill: var(--crit-graph-green) !important; }
-.crit-marker-teal   { fill: var(--crit-graph-teal) !important; }
-.crit-marker-blue   { fill: var(--crit-graph-blue) !important; }
-.crit-marker-indigo { fill: var(--crit-graph-indigo) !important; }
-.crit-marker-violet { fill: var(--crit-graph-violet) !important; }
-.crit-marker-pink   { fill: var(--crit-graph-pink) !important; }
-.crit-marker-slate  { fill: var(--crit-graph-slate) !important; }
+.crit-graph-chip-text {
+  font-size: 9px !important;
+  font-family: inherit;
+  font-weight: 500;
+}
+
+/* The attention ring. Drawn outside the shape's own border, which already
+   carries status — the two signals must not share one channel. */
+.crit-graph-outline {
+  fill: none !important;
+  stroke-width: 2px !important;
+  stroke-dasharray: none !important;
+}
+
+.crit-chip-red    .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-red) 18%, transparent) !important;    stroke: var(--crit-graph-red) !important; }
+.crit-chip-orange .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-orange) 18%, transparent) !important; stroke: var(--crit-graph-orange) !important; }
+.crit-chip-amber  .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-amber) 18%, transparent) !important;  stroke: var(--crit-graph-amber) !important; }
+.crit-chip-green  .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-green) 18%, transparent) !important;  stroke: var(--crit-graph-green) !important; }
+.crit-chip-teal   .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-teal) 18%, transparent) !important;   stroke: var(--crit-graph-teal) !important; }
+.crit-chip-blue   .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-blue) 18%, transparent) !important;   stroke: var(--crit-graph-blue) !important; }
+.crit-chip-indigo .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-indigo) 18%, transparent) !important; stroke: var(--crit-graph-indigo) !important; }
+.crit-chip-violet .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-violet) 18%, transparent) !important; stroke: var(--crit-graph-violet) !important; }
+.crit-chip-pink   .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-pink) 18%, transparent) !important;   stroke: var(--crit-graph-pink) !important; }
+.crit-chip-slate  .crit-graph-chip-bg { fill: color-mix(in srgb, var(--crit-graph-slate) 18%, transparent) !important;  stroke: var(--crit-graph-slate) !important; }
+
+.crit-chip-red    .crit-graph-chip-text { fill: var(--crit-graph-red) !important; }
+.crit-chip-orange .crit-graph-chip-text { fill: var(--crit-graph-orange) !important; }
+.crit-chip-amber  .crit-graph-chip-text { fill: var(--crit-graph-amber) !important; }
+.crit-chip-green  .crit-graph-chip-text { fill: var(--crit-graph-green) !important; }
+.crit-chip-teal   .crit-graph-chip-text { fill: var(--crit-graph-teal) !important; }
+.crit-chip-blue   .crit-graph-chip-text { fill: var(--crit-graph-blue) !important; }
+.crit-chip-indigo .crit-graph-chip-text { fill: var(--crit-graph-indigo) !important; }
+.crit-chip-violet .crit-graph-chip-text { fill: var(--crit-graph-violet) !important; }
+.crit-chip-pink   .crit-graph-chip-text { fill: var(--crit-graph-pink) !important; }
+.crit-chip-slate  .crit-graph-chip-text { fill: var(--crit-graph-slate) !important; }
+
+.crit-graph-outline.crit-outline-red { stroke: var(--crit-graph-red) !important; }
+.crit-graph-outline.crit-outline-orange { stroke: var(--crit-graph-orange) !important; }
+.crit-graph-outline.crit-outline-amber { stroke: var(--crit-graph-amber) !important; }
+.crit-graph-outline.crit-outline-green { stroke: var(--crit-graph-green) !important; }
+.crit-graph-outline.crit-outline-teal { stroke: var(--crit-graph-teal) !important; }
+.crit-graph-outline.crit-outline-blue { stroke: var(--crit-graph-blue) !important; }
+.crit-graph-outline.crit-outline-indigo { stroke: var(--crit-graph-indigo) !important; }
+.crit-graph-outline.crit-outline-violet { stroke: var(--crit-graph-violet) !important; }
+.crit-graph-outline.crit-outline-pink { stroke: var(--crit-graph-pink) !important; }
+.crit-graph-outline.crit-outline-slate { stroke: var(--crit-graph-slate) !important; }
+
+/* Legend swatches (HTML, not SVG) reuse the palette by name. */
+.crit-marker-red    { background: var(--crit-graph-red); }
+.crit-marker-orange { background: var(--crit-graph-orange); }
+.crit-marker-amber  { background: var(--crit-graph-amber); }
+.crit-marker-green  { background: var(--crit-graph-green); }
+.crit-marker-teal   { background: var(--crit-graph-teal); }
+.crit-marker-blue   { background: var(--crit-graph-blue); }
+.crit-marker-indigo { background: var(--crit-graph-indigo); }
+.crit-marker-violet { background: var(--crit-graph-violet); }
+.crit-marker-pink   { background: var(--crit-graph-pink); }
+.crit-marker-slate  { background: var(--crit-graph-slate); }
+
+/* An outline badge's legend swatch is a ring, so the legend shows the same
+   channel the diagram uses. */
+.crit-graph-swatch.is-outline {
+  background: transparent !important;
+  border-width: 2px;
+}
 
 .crit-graph-legend-item .crit-marker-red    { background: var(--crit-graph-red); }
-.crit-graph-legend-item .crit-marker-orange { background: var(--crit-graph-orange); }
 .crit-graph-legend-item .crit-marker-amber  { background: var(--crit-graph-amber); }
 .crit-graph-legend-item .crit-marker-green  { background: var(--crit-graph-green); }
 .crit-graph-legend-item .crit-marker-teal   { background: var(--crit-graph-teal); }
 .crit-graph-legend-item .crit-marker-blue   { background: var(--crit-graph-blue); }
-.crit-graph-legend-item .crit-marker-indigo { background: var(--crit-graph-indigo); }
-.crit-graph-legend-item .crit-marker-violet { background: var(--crit-graph-violet); }
 .crit-graph-legend-item .crit-marker-pink   { background: var(--crit-graph-pink); }
 .crit-graph-legend-item .crit-marker-slate  { background: var(--crit-graph-slate); }
 
@@ -7279,4 +7336,64 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-graph-expand:hover {
   background: var(--crit-editor-bg-hover);
   color: var(--crit-editor-fg);
+}
+
+/* ---- Read-direction bar ----
+   The layout does not announce which way a hierarchy flows, and a reader who
+   guesses wrong reads the call tree backwards — so it is stated in words. */
+.crit-graph-axis {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+  padding: 5px 10px;
+  border: 1px solid var(--crit-border);
+  border-left: 3px solid var(--crit-brand);
+  border-radius: 4px;
+  background: var(--crit-editor-bg-card);
+  font-size: 12px;
+  color: var(--crit-editor-fg-secondary);
+}
+
+.crit-graph-axis-arrow {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--crit-brand);
+}
+
+.crit-graph-axis-text { color: var(--crit-editor-fg); }
+
+.crit-graph-axis-entries {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.crit-graph-axis-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  color: var(--crit-editor-fg-muted);
+}
+
+.crit-graph-entry-link {
+  padding: 1px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--crit-border-strong);
+  background: var(--crit-editor-bg-elevated);
+  color: var(--crit-editor-fg);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.crit-graph-entry-link:hover { border-color: var(--crit-brand); color: var(--crit-brand); }
+
+/* The entry tick on the node itself: where reading begins. */
+.crit-graph-entry-marker rect {
+  fill: var(--crit-brand) !important;
+  stroke: none !important;
 }

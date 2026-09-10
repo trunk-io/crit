@@ -63,6 +63,7 @@ func TestGuideDocumentsEveryCode(t *testing.T) {
 		CodeNodeMissingSignature, CodeNodeMissingFile, CodeNodeMissingLine,
 		CodeNodeAbsolutePath, CodeNodeIsolated, CodeBadgeUnknown, CodeBadgeBadColor,
 		CodeBadgeDuplicateID, CodeBadgeMissingLabel, CodeBadgeUnused,
+		CodeBadgeBadStyle, CodeBadgeLongLabel, CodeNodeManyOutlines,
 		CodeSubgraphNoMetadata, CodeSubgraphWrongKind, CodePhaseInvalid,
 		CodeVersionUnsupported, CodeTitleMissing, CodeGraphTooLarge,
 	}
@@ -383,5 +384,48 @@ func TestValidateDoesNotWarnOnANormalGraph(t *testing.T) {
 	g := &session.Graph{Title: "normal", Diagram: b.String(), Nodes: nodes}
 	if hasCode(Validate(g), CodeGraphTooLarge) {
 		t.Error("25 nodes is within the recommended range and must not warn")
+	}
+}
+
+// A reader opening a call hierarchy needs to know which way it reads and where
+// to start before anything else on the page means anything. Both are derived
+// here because in-degree needs the edge set, which only the scanner has.
+func TestValidateReportsDirectionAndEntryPoints(t *testing.T) {
+	g := &session.Graph{
+		Title:   "t",
+		Diagram: "flowchart LR\n  entryA --> mid\n  entryB --> mid\n  mid --> leaf",
+		Nodes: map[string]session.GraphNode{
+			"entryA": {Signature: "a()", File: "a.ts", Line: 1, Status: session.StatusNew},
+			"entryB": {Signature: "b()", File: "b.ts", Line: 1, Status: session.StatusNew},
+			"mid":    {Signature: "m()", File: "m.ts", Line: 1, Status: session.StatusNew},
+			"leaf":   {Signature: "l()", File: "l.ts", Line: 1, Status: session.StatusNew},
+		},
+	}
+	d := Validate(g)
+	if d.Direction != "LR" {
+		t.Errorf("direction = %q, want LR", d.Direction)
+	}
+	if strings.Join(d.Entries, ",") != "entryA,entryB" {
+		t.Errorf("entries = %v, want [entryA entryB] in diagram order", d.Entries)
+	}
+}
+
+// A fully cyclic graph has no entry point; the viewer must be told nothing
+// rather than handed an arbitrary node to start from.
+func TestValidateNoEntryPointsWhenCyclic(t *testing.T) {
+	g := &session.Graph{
+		Title:   "t",
+		Diagram: "flowchart TD\n  a --> b\n  b --> a",
+		Nodes: map[string]session.GraphNode{
+			"a": {Signature: "a()", File: "a.ts", Line: 1, Status: session.StatusNew},
+			"b": {Signature: "b()", File: "b.ts", Line: 1, Status: session.StatusNew},
+		},
+	}
+	d := Validate(g)
+	if len(d.Entries) != 0 {
+		t.Errorf("entries = %v, want none for a cyclic graph", d.Entries)
+	}
+	if d.Direction != "TD" {
+		t.Errorf("direction = %q, want TD", d.Direction)
 	}
 }

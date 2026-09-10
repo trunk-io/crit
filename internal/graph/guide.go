@@ -40,6 +40,9 @@ var diagnosticRemedy = map[string]string{
 	CodeBadgeDuplicateID:       "Two legend entries share an ID. Keep one.",
 	CodeBadgeMissingLabel:      "A badge needs the short text it displays.",
 	CodeBadgeUnused:            "A defined badge that no node carries is dead vocabulary (warning). Drop it or use it.",
+	CodeBadgeBadStyle:          "A badge's `style` is `chip` (a small labelled chip under the node, the default) or `outline` (a ring around the node). Use `outline` for the one badge meaning \"look at this\" — a chip competes with the other chips, a ring reads across the whole diagram.",
+	CodeBadgeLongLabel:         "A chip is drawn on every node carrying it, so a long label distorts the layout (warning). Keep it to one short word and put the detail in `description`.",
+	CodeNodeManyOutlines:       "Outline rings do not compose — a second would draw a second border around the same node (warning). Keep one outline badge per node and express the rest as chips.",
 	CodeSubgraphNoMetadata:     "A subgraph without a `nodes` entry renders as a plain container with no hover card (warning). Add one with `\"kind\": \"module\"` to describe the module.",
 	CodeSubgraphWrongKind:      "A subgraph described in `nodes` must be `\"kind\": \"module\"` — it groups call nodes, it is not one.",
 	CodePhaseInvalid:           `"phase" is "plan" (authored before implementation) or "review" (authored after). It only changes which diagnostics are fatal.`,
@@ -78,6 +81,21 @@ half-rendered node.
 This is a **call hierarchy, not an AST**. Include the functions a reader needs
 to follow control flow across the change; leave out narrow helpers, getters,
 and one-line wrappers. A graph of 60 nodes is a graph nobody reads.
+
+## Direction is the reading contract
+
+Pick a direction and mean it. `)
+	b.WriteString("`flowchart LR`")
+	b.WriteString(` reads callers on the left and
+callees on the right; `)
+	b.WriteString("`TD`")
+	b.WriteString(` reads callers on top. The viewer states
+whichever you chose in words above the diagram, and marks the nodes nothing
+calls as the places to start reading — so edges must point **from caller to
+callee**, consistently. An edge drawn the other way inverts the whole diagram's
+meaning while still rendering fine.
+
+LR suits most call hierarchies; TD suits a deep single stack.
 
 ## Scope of the two phases
 
@@ -194,6 +212,24 @@ Use `)
 	b.WriteString("`\"group\": \"phase\"`")
 	b.WriteString(` for which
 PR in a stack introduced the node.
+
+A badge is drawn in one of two channels, set by `)
+	b.WriteString("`style`")
+	b.WriteString(`:
+
+- `)
+	b.WriteString("`\"chip\"`")
+	b.WriteString(` (the default) — a small labelled chip under the node. Keep the
+  label to **one short word**: it is drawn on every node carrying it, so a long
+  one distorts the layout. Put the detail in `)
+	b.WriteString("`description`")
+	b.WriteString(`.
+- `)
+	b.WriteString("`\"outline\"`")
+	b.WriteString(` — a ring around the node, drawn outside its own border so
+  status still reads. This is the channel for "look at this one": a chip would
+  compete with the chips beside it, while a ring reads across the whole
+  diagram at a glance. Use it for **one** badge — rings do not compose.
 
 ## Fixing an invalid graph
 
