@@ -228,8 +228,27 @@ test('a theme change re-renders the graph and keeps the selection', () => {
 });
 
 // Stats come from the ingest's diagnostics; a graph without them must not
-// report "0 nodes".
+// report "0 nodes". Asserted behaviourally rather than by grepping the
+// implementation, which is what made this test brittle the first time.
 test('the header falls back to counting nodes without diagnostics', () => {
   const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
-  assert.ok(src.includes('Object.keys(g.nodes || {}).length'), 'need a node-count fallback');
+  assert.ok(src.includes('st.nodes || countCallNodes(g)'), 'need a node-count fallback');
+  assert.strictEqual(view.countCallNodes({ nodes: { a: {}, b: {} } }), 2);
+});
+
+// The header's node count must mean the same thing as GraphStats.Nodes, which
+// counts call nodes and tallies modules separately. Counting the whole map
+// made the header disagree with what the CLI had just printed for the same
+// graph — "30 nodes" against "25 nodes, 5 modules".
+test('the node-count fallback excludes modules', () => {
+  const g = {
+    nodes: {
+      mod: { kind: 'module', status: 'new' },
+      a: { status: 'new' },
+      b: { kind: 'function', status: 'new' },
+    },
+  };
+  assert.strictEqual(view.countCallNodes(g), 2);
+  assert.strictEqual(view.countCallNodes({}), 0);
+  assert.strictEqual(view.countCallNodes(null), 0);
 });

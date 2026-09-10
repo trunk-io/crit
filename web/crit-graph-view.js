@@ -659,6 +659,17 @@
     }
   }
 
+  // countCallNodes counts function nodes only, matching GraphStats.Nodes —
+  // modules are counted separately there and must be here too.
+  function countCallNodes(g) {
+    var n = 0;
+    var nodes = (g && g.nodes) || {};
+    Object.keys(nodes).forEach(function (id) {
+      if ((nodes[id] || {}).kind !== 'module') n++;
+    });
+    return n;
+  }
+
   function renderHeader(container) {
     var g = state.graph;
     var head = el('div', 'crit-graph-header');
@@ -666,10 +677,17 @@
     var meta = el('div', 'crit-graph-meta');
     // Stats normally come from the ingest's diagnostics; fall back to counting
     // the metadata map so a graph written without them does not read "0 nodes".
+    // The fallback must exclude modules, or it means something different from
+    // stats.nodes and the header disagrees with what the CLI just printed —
+    // "30 nodes" against "25 nodes, 5 modules" for the same graph.
     var st = (g.diagnostics && g.diagnostics.stats) || {};
-    var nodeCount = st.nodes || Object.keys(g.nodes || {}).length;
+    var nodeCount = st.nodes || countCallNodes(g);
+    var moduleCount = st.modules || 0;
     meta.appendChild(el('span', 'crit-graph-phase', g.phase === 'review' ? 'after implementation' : 'plan'));
     meta.appendChild(el('span', null, nodeCount + (nodeCount === 1 ? ' node' : ' nodes')));
+    if (moduleCount) {
+      meta.appendChild(el('span', null, moduleCount + (moduleCount === 1 ? ' module' : ' modules')));
+    }
     if (st.new) meta.appendChild(el('span', null, st.new + ' net-new'));
     if (st.modified) meta.appendChild(el('span', null, st.modified + ' modified'));
     head.appendChild(meta);
@@ -758,6 +776,7 @@
     copyTargetFor: copyTargetFor,
     badgesFor: badgesFor,
     legendGroups: legendGroups,
+    countCallNodes: countCallNodes,
     buildNodeCard: buildNodeCard,
     render: render,
     renderPanel: renderPanel,
