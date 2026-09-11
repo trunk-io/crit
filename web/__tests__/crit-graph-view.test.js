@@ -378,3 +378,31 @@ test('the review link is gated on the file being in the review', () => {
   assert.ok(body.includes('setGraphVisible(false)'), 'must leave the graph for the diff');
   assert.ok(body.includes('scrollToFile(path)'), 'must reuse scrollToFile');
 });
+
+// The comment affordance goes on EVERY node, not only the commented ones.
+// With one comment in a 32-node graph, a badge on that node alone read as
+// arbitrary decoration rather than as "this node has a thread".
+test('the comment affordance is on every node and documented in the key', () => {
+  const src = fs.readFileSync(path.join(WEB, 'crit-graph-view.js'), 'utf8');
+  assert.ok(src.includes('function attachCommentAffordance'), 'need the affordance');
+  // It must not be gated on having comments — that was the bug.
+  const fn = src.slice(src.indexOf('function attachCommentAffordance'));
+  const body = fn.slice(0, fn.indexOf('\n  }'));
+  assert.ok(!/if \(!all\.length\) return/.test(body), 'must not skip nodes without comments');
+  assert.ok(body.includes("data-empty"), 'an empty node needs its own state');
+  assert.ok(body.includes('No comments yet'), 'the empty state needs a tooltip that says what it does');
+
+  // Reuses crit's own comment glyph so the affordance is recognisable.
+  const icons = fs.readFileSync(path.join(WEB, 'crit-icons.js'), 'utf8');
+  const head = view.COMMENT_BUBBLE_PATH.slice(0, 40);
+  assert.ok(icons.includes(head), 'the bubble must be the same path as ICON_COMMENT');
+
+  // And it is explained in the legend rather than left as an unlabelled number.
+  assert.ok(src.includes("'crit-graph-legend-bubble '"), 'the key needs bubble glyphs');
+  assert.ok(src.includes('click a node to comment'), 'the key must say what it does');
+
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  for (const state of ['is-empty', 'is-open', 'is-resolved']) {
+    assert.ok(css.includes(`.crit-graph-legend-bubble.${state}`), `missing legend style ${state}`);
+  }
+});

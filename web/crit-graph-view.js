@@ -493,34 +493,72 @@
     }).length;
   }
 
-  // attachCommentBadge marks a node that already carries feedback, so a
-  // reviewer returning to a graph can see where the conversation is without
-  // opening every node.
-  function attachCommentBadge(nodeEl, id, box) {
-    var n = commentsFor(id).length;
-    if (!n || !box) return;
+  // COMMENT_BUBBLE_PATH is the same speech bubble crit uses for comments
+  // everywhere else (ICON_COMMENT in crit-icons.js), reused so the affordance
+  // is recognisable rather than a bare number in a circle nobody can decode.
+  // Its source viewBox is 16x16; COMMENT_BUBBLE_SCALE shrinks it to node size.
+  var COMMENT_BUBBLE_PATH =
+    'M1 2.75C1 1.784 1.784 1 2.75 1h10.5c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 13.25 12H9.06' +
+    'l-2.573 2.573A1.458 1.458 0 0 1 4 13.543V12H2.75A1.75 1.75 0 0 1 1 10.25Z';
+  // Rendered at the source viewBox's own size (14px of ink in a 16 unit box),
+  // which reads as a speech bubble rather than a dot and sits comfortably
+  // against the 13px chips below the node.
+  var COMMENT_BUBBLE_SCALE = 1;
+  var COMMENT_BUBBLE_SIZE = 16 * COMMENT_BUBBLE_SCALE;
+
+  // attachCommentAffordance puts a comment bubble on EVERY node, not only the
+  // ones that already carry feedback.
+  //
+  // Marking only commented nodes made the badge unreadable as a language: with
+  // one comment in a 37-node graph it looked like an arbitrary decoration
+  // rather than "this node has a thread". A faint bubble on every node says
+  // "you can comment here" and turns the filled ones into an obvious contrast.
+  function attachCommentAffordance(nodeEl, id, box) {
+    if (!box) return;
     if (nodeEl.querySelector('.crit-graph-comment-badge')) return;
+
+    var all = commentsFor(id);
+    var open = unresolvedCount(id);
     var group = svgEl('g');
     group.setAttribute('class', 'crit-graph-comment-badge');
-    if (unresolvedCount(id) > 0) group.setAttribute('data-unresolved', 'true');
-    var circle = svgEl('circle');
-    circle.setAttribute('cx', String(box.x + box.width));
-    circle.setAttribute('cy', String(box.y));
-    circle.setAttribute('r', '8');
-    group.appendChild(circle);
-    var text = svgEl('text');
-    text.setAttribute('x', String(box.x + box.width));
-    text.setAttribute('y', String(box.y));
-    text.setAttribute('dy', '3.5');
-    text.setAttribute('text-anchor', 'middle');
-    text.textContent = String(n);
-    group.appendChild(text);
+    if (all.length === 0) group.setAttribute('data-empty', 'true');
+    if (open > 0) group.setAttribute('data-unresolved', 'true');
+
+    // Top-right corner, outside the shape, so it never covers the label.
+    var x = box.x + box.width - COMMENT_BUBBLE_SIZE / 2;
+    var y = box.y - COMMENT_BUBBLE_SIZE / 2;
+
+    var bubble = svgEl('path');
+    bubble.setAttribute('class', 'crit-graph-comment-bubble');
+    bubble.setAttribute('d', COMMENT_BUBBLE_PATH);
+    bubble.setAttribute('transform',
+      'translate(' + x + ',' + y + ') scale(' + COMMENT_BUBBLE_SCALE + ')');
+    group.appendChild(bubble);
+
+    if (all.length > 0) {
+      var count = svgEl('text');
+      count.setAttribute('class', 'crit-graph-comment-count');
+      count.setAttribute('x', String(x + COMMENT_BUBBLE_SIZE + 2));
+      count.setAttribute('y', String(y + COMMENT_BUBBLE_SIZE / 2));
+      count.setAttribute('dominant-baseline', 'central');
+      count.textContent = String(all.length);
+      group.appendChild(count);
+    }
+
+    var title = svgEl('title');
+    title.textContent = all.length === 0
+      ? 'No comments yet — click the node to add one'
+      : all.length + (all.length === 1 ? ' comment' : ' comments') +
+        (open > 0 ? ' (' + open + ' unresolved)' : ' (all resolved)');
+    group.appendChild(title);
+
     nodeEl.appendChild(group);
   }
 
   // HOVER_GRACE_MS bridges the gap between the node and its card. Without it
-  // the card is unusable rather than merely awkward: it carries a copy button,
-  // and reaching for the button leaves the node, which dismissed the card.
+  // the card is unusable rather than merely awkward: it carries Copy and
+  // Review buttons, and reaching for either leaves the node, which dismissed
+  // the card.
   var HOVER_GRACE_MS = 220;
   var hoverHideTimer = null;
 
@@ -593,7 +631,7 @@
       var ring = outlineBadge(badges);
       attachAttentionOutline(nodeEl, ring, box);
       attachBadgeChips(nodeEl, chipBadges(badges), box, !!ring);
-      attachCommentBadge(nodeEl, id, box);
+      attachCommentAffordance(nodeEl, id, box);
 
       nodeEl.addEventListener('mouseenter', function () {
         showHoverCard(nodeEl, id);
@@ -633,7 +671,7 @@
       if (nodeIdFromElement(nodeEl) !== nodeID) return;
       var existing = nodeEl.querySelector('.crit-graph-comment-badge');
       if (existing) existing.parentNode.removeChild(existing);
-      attachCommentBadge(nodeEl, nodeID, shapeBox(nodeEl));
+      attachCommentAffordance(nodeEl, nodeID, shapeBox(nodeEl));
     });
   }
 
@@ -825,6 +863,26 @@
       statuses.appendChild(item);
     });
     wrap.appendChild(statuses);
+
+    // The comment affordance is crit's own vocabulary, not the author's, so it
+    // is documented here beside the statuses rather than left for a reader to
+    // infer from an unexplained number.
+    var comments = el('div', 'crit-graph-legend-group');
+    comments.appendChild(el('span', 'crit-graph-legend-label', 'comments'));
+    [
+      { cls: 'is-empty', text: 'click a node to comment' },
+      { cls: 'is-open', text: 'has an unresolved thread' },
+      { cls: 'is-resolved', text: 'all resolved' },
+    ].forEach(function (spec) {
+      var item = el('span', 'crit-graph-legend-item');
+      var glyph = el('span', 'crit-graph-legend-bubble ' + spec.cls);
+      glyph.innerHTML =
+        '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="' + COMMENT_BUBBLE_PATH + '"/></svg>';
+      item.appendChild(glyph);
+      item.appendChild(el('span', null, spec.text));
+      comments.appendChild(item);
+    });
+    wrap.appendChild(comments);
 
     legendGroups(graph).forEach(function (g) {
       var row = el('div', 'crit-graph-legend-group');
@@ -1022,6 +1080,7 @@
     setComments: setComments,
     hideHoverCard: hideHoverCard,
     attachExpandButton: attachExpandButton,
+    COMMENT_BUBBLE_PATH: COMMENT_BUBBLE_PATH,
     _state: state,
   };
 

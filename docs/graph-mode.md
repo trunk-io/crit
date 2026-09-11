@@ -196,6 +196,13 @@ When the review has no files, the viewer opens on the diagram automatically
 rather than showing an empty file pane. When there *is* a diff, the diff stays
 the default and the graph is one click (or one `#graph`) away.
 
+Every node carries a **comment bubble** in its top-right corner — crit's own
+comment glyph, not a bare number. Faint means no thread yet (click the node to
+start one), filled means there is one, with the count beside it and a stronger
+fill while anything is unresolved. It is on every node deliberately: marking
+only the commented ones made a single badge in a large graph read as arbitrary
+decoration instead of as a thread. All three states are in the key.
+
 In the browser, the **Graph** toggle switches between the diagram and the
 files, and keeps the `#graph` fragment in step so a copied URL reopens the same
 view. Click any node.

@@ -246,6 +246,29 @@ test.describe('Call-hierarchy graph view', () => {
     await expect(legend).toContainText('read closely');
   });
 
+  // The affordance must be on every node, not only the commented ones: with
+  // one comment in a large graph, a badge on that node alone read as arbitrary
+  // decoration rather than as "this node has a thread".
+  test('every node carries a comment affordance, explained in the key', async ({ page }) => {
+    const nodes = page.locator('.crit-graph-diagram g.node');
+    const count = await nodes.count();
+    await expect(page.locator('.crit-graph-diagram g.node .crit-graph-comment-badge')).toHaveCount(count);
+    // All empty to begin with, and each says what it does.
+    await expect(
+      page.locator('.crit-graph-diagram g.node .crit-graph-comment-badge[data-empty="true"]')
+    ).toHaveCount(count);
+    const tip = page.locator('.crit-graph-diagram g.node .crit-graph-comment-badge title').first();
+    await expect(tip).toContainText('click the node to add one');
+    // No count is drawn until there is something to count.
+    await expect(page.locator('.crit-graph-comment-count')).toHaveCount(0);
+
+    // And the key explains it rather than leaving an unlabelled number.
+    const legend = page.locator('.crit-graph-legend');
+    await expect(legend).toContainText('comments');
+    await expect(legend).toContainText('click a node to comment');
+    await expect(legend.locator('.crit-graph-legend-bubble')).toHaveCount(3);
+  });
+
   test('a comment on a node persists and marks the node', async ({ page }) => {
     await page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first().click();
     const panel = page.locator('#graphNodePanel');
@@ -254,10 +277,12 @@ test.describe('Call-hierarchy graph view', () => {
 
     await expect(panel.locator('.crit-graph-comment')).toHaveCount(1);
     await expect(panel.locator('.crit-graph-comment-body')).toContainText('signing key');
-    // The node itself gains a count badge, so a returning reviewer can see
-    // where the conversation is without opening every node.
+    // The node's affordance fills in and gains a count, so a returning
+    // reviewer sees where the conversation is without opening every node.
     const mint = page.locator('.crit-graph-diagram g.node', { hasText: 'mintToken' }).first();
-    await expect(mint.locator('.crit-graph-comment-badge')).toHaveCount(1);
+    await expect(mint.locator('.crit-graph-comment-badge[data-empty="true"]')).toHaveCount(0);
+    await expect(mint.locator('.crit-graph-comment-badge[data-unresolved="true"]')).toHaveCount(1);
+    await expect(mint.locator('.crit-graph-comment-count')).toHaveText('1');
 
     // And it survives a reload — the comment went to the review file.
     await loadPage(page);

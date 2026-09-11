@@ -7093,22 +7093,50 @@ body.crit-story-active .crit-story-rail-resizer { display: block; }
 .crit-graph-status-modified { background: var(--crit-graph-blue); }
 .crit-graph-status-external { background: transparent; border-style: dashed; }
 
-/* ---- Comment count badge on a node ---- */
-.crit-graph-comment-badge circle {
-  fill: var(--crit-editor-bg-elevated) !important;
-  stroke: var(--crit-border-strong) !important;
+/* ---- Comment affordance ----
+   On EVERY node, not only the commented ones: with one comment in a 37-node
+   graph a badge on that node alone read as arbitrary decoration rather than as
+   "this node has a thread". A faint bubble everywhere says "you can comment
+   here" and makes the filled ones an obvious contrast. */
+.crit-graph-comment-bubble {
+  fill: var(--crit-brand) !important;
+  stroke: none !important;
 }
 
-.crit-graph-comment-badge[data-unresolved="true"] circle {
+.crit-graph-comment-badge[data-empty="true"] .crit-graph-comment-bubble {
+  fill: color-mix(in srgb, var(--crit-editor-fg) 28%, transparent) !important;
+}
+
+.crit-graph-node:hover .crit-graph-comment-badge[data-empty="true"] .crit-graph-comment-bubble,
+.crit-graph-node:focus-visible .crit-graph-comment-badge[data-empty="true"] .crit-graph-comment-bubble {
+  fill: var(--crit-brand) !important;
+}
+
+.crit-graph-comment-badge[data-unresolved="true"] .crit-graph-comment-bubble {
   fill: var(--crit-brand-cta) !important;
-  stroke: var(--crit-brand) !important;
 }
 
-.crit-graph-comment-badge text {
-  fill: var(--crit-editor-fg) !important;
-  font-size: 9px;
+.crit-graph-comment-count {
+  fill: var(--crit-brand) !important;
+  font-size: 10px !important;
+  font-weight: 600;
   font-family: inherit;
 }
+
+.crit-graph-comment-badge[data-unresolved="true"] .crit-graph-comment-count {
+  fill: var(--crit-brand-cta) !important;
+}
+
+/* Legend glyphs for the affordance, matching the three node states. */
+.crit-graph-legend-bubble svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+
+.crit-graph-legend-bubble.is-empty svg { fill: color-mix(in srgb, var(--crit-editor-fg) 28%, transparent); }
+.crit-graph-legend-bubble.is-open svg { fill: var(--crit-brand-cta); }
+.crit-graph-legend-bubble.is-resolved svg { fill: var(--crit-brand); }
 
 /* ---- Node card: the hover tooltip and the detail panel body ---- */
 .crit-graph-card {
